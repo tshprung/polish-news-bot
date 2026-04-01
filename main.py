@@ -1,7 +1,7 @@
 import feedparser
 import sqlite3
-import anthropic
 import requests
+from openai import OpenAI
 import time
 import os
 import re
@@ -82,12 +82,12 @@ def summarize_in_hebrew(client, article):
     if article["summary"]:
         text += ". " + article["summary"]
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         max_tokens=300,
         messages=[
             {
-                "role": "user",
+                "role": "system",
                 "content": (
                     "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
                     "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
@@ -98,19 +98,23 @@ def summarize_in_hebrew(client, article):
                     "  3. A Hebrew summary of up to 30 words — if the article is relevant and has enough content.\n\n"
                     "Rules for the Hebrew summary:\n"
                     "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
+                    "- Use real Hebrew words — never transliterate foreign words when a Hebrew equivalent exists.\n"
                     "- Do not translate word-for-word. Use correct grammar and natural Hebrew verb forms.\n"
                     "- Be faithful to the facts — do not add, remove, or change information.\n"
                     "- ONLY Hebrew script characters and spaces. No Latin, digits, Chinese, Arabic, or any other script.\n"
-                    "- Do NOT include any explanation, label, or reasoning — only the summary itself.\n\n"
-                    f"Article: {text[:600]}"
+                    "- Do NOT include any explanation, label, or reasoning — only the summary itself."
                 ),
+            },
+            {
+                "role": "user",
+                "content": f"Article: {text[:600]}",
             },
         ],
     )
     # Guard against truncation — a cut-off summary is worse than no summary
-    if response.stop_reason == "max_tokens":
+    if response.choices[0].finish_reason == "length":
         return None, True
-    result = response.content[0].text.strip()
+    result = response.choices[0].message.content.strip()
     if result == "SKIP":
         return None, False
     if result == "INSUFFICIENT":
@@ -148,7 +152,7 @@ def notify_admin(article):
 
 def main():
     conn = init_db()
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    client = OpenAI()  # reads OPENAI_API_KEY from env
 
     new_articles = get_new_articles(conn)
     new_articles.sort(key=lambda a: a["sort_key"])
