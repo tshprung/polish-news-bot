@@ -123,6 +123,7 @@ def summarize_in_hebrew(client, article):
                     "does not directly influence Poland, or is about sports.\n"
                     "  2. INSUFFICIENT — if the article is relevant to Poland but the text is too "
                     "incomplete to summarize faithfully.\n"
+                    "IMPORTANT: SKIP and INSUFFICIENT must be written in English Latin characters exactly as shown — never translate or transliterate them.\n"
                     "  3. A Hebrew summary of up to 30 words.\n\n"
                     "Rules for the Hebrew summary:\n"
                     "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
@@ -151,9 +152,12 @@ def summarize_in_hebrew(client, article):
     if response.choices[0].finish_reason == "length":
         return None, True
     result = response.choices[0].message.content.strip()
-    if result.upper().startswith("SKIP"):
+    if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
         return None, False
-    if result.upper().startswith("INSUF"):
+    if result.upper().startswith("INSUF") or result.startswith("אינסאפ") or result.startswith("לא מספיק"):
+        return None, True
+    # Suspiciously short — likely a misrouted signal
+    if len(result) < 15:
         return None, True
     # Strip non-Hebrew/non-Latin characters (block CJK and other exotic scripts)
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
