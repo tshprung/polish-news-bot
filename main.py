@@ -25,6 +25,7 @@ FEEDS = [
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
+ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
 
@@ -73,6 +74,10 @@ def get_new_articles(conn):
 
 
 def summarize_in_hebrew(client, article):
+    """Returns (hebrew_text, notify_admin).
+    hebrew_text is None if the article should be skipped.
+    notify_admin is True if admin should be alerted (insufficient content).
+    """
     text = article["title"]
     if article["summary"]:
         text += ". " + article["summary"]
@@ -86,13 +91,16 @@ def summarize_in_hebrew(client, article):
                 "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
                 "First, decide: is this article about Polish internal affairs, or does it directly influence Poland? "
                 "If NO, respond with exactly: SKIP\n"
-                "If YES, write a summary in up to 40 words. "
+                "If YES but the provided text is too incomplete to summarize faithfully, "
+                "respond with exactly: INSUFFICIENT\n"
+                "Otherwise write a summary in up to 40 words. "
                 "Write in fluent, natural journalistic Hebrew — as a native Hebrew news editor would phrase it, "
                 "using correct grammar, natural word order, and proper Hebrew verb forms. "
                 "Do not translate word-for-word from Polish or English. "
                 "Be faithful to the facts — do not add, remove, or change any information. "
                 "CRITICAL: Your output must contain ONLY Hebrew script characters and spaces. "
                 "Absolutely no Latin letters, digits, Chinese, Arabic, or any other script. "
+                "Never output explanations or English text under any circumstances. "
                 "Output only the Hebrew summary, nothing else.\n\n"
                 f"Article: {text[:600]}"
             ),
@@ -100,20 +108,38 @@ def summarize_in_hebrew(client, article):
     )
     result = response.content[0].text.strip()
     if result == "SKIP":
-        return None
+        return None, False
+    if result == "INSUFFICIENT":
+        return None, True
     # Strip any non-Hebrew characters (keep Hebrew block + niqqud + spaces/punctuation)
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4F\s,.:;!?\"'-]", "", result).strip()
-    return result or None
+    if not result:
+        return None, True  # something slipped through — treat as insufficient
+    return result, False
 
 
-def send_to_telegram(message):
+def send_to_telegram(message, chat_id=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     resp = requests.post(
         url,
-        json={"chat_id": CHANNEL_ID, "text": message, "parse_mode": "HTML"},
+        json={"chat_id": chat_id or CHANNEL_ID, "text": message, "parse_mode": "HTML"},
         timeout=10,
     )
     resp.raise_for_status()
+
+
+def notify_admin(article):
+    if not ADMIN_TELEGRAM_ID:
+        return
+    msg = (
+        f"⚠️ Could not summarize article (insufficient content):\n"
+        f"<b>{article['title']}</b>\n"
+        f"{article['id']}"
+    )
+    try:
+        send_to_telegram(msg, chat_id=ADMIN_TELEGRAM_ID)
+    except Exception as e:
+        log.error(f"Failed to notify admin: {e}")
 
 
 def main():
@@ -126,9 +152,13 @@ def main():
 
     for article in new_articles:
         try:
-            hebrew = summarize_in_hebrew(client, article)
+            hebrew, should_notify = summarize_in_hebrew(client, article)
             if hebrew is None:
-                log.info(f"Skipped (not Poland-related): {article['title'][:70]}")
+                if should_notify:
+                    log.info(f"Skipped (insufficient content): {article['title'][:70]}")
+                    notify_admin(article)
+                else:
+                    log.info(f"Skipped (not Poland-related): {article['title'][:70]}")
                 conn.execute(
                     "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
                 )
