@@ -74,6 +74,20 @@ def get_new_articles(conn):
     return new_articles
 
 
+def fetch_article_body(url):
+    """Fetch full article text from URL. Returns plain text, stripped of HTML tags."""
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        # Extract text from <p> tags only — avoids nav/ads/footer noise
+        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
+        text = " ".join(re.sub(r"<[^>]+>", "", p) for p in paragraphs)
+        return text.strip()
+    except Exception as e:
+        log.warning(f"Could not fetch article body from {url}: {e}")
+        return ""
+
+
 def summarize_in_hebrew(client, article):
     """Returns (hebrew_text, notify_admin).
     hebrew_text is None if the article should be skipped.
@@ -82,6 +96,12 @@ def summarize_in_hebrew(client, article):
     text = article["title"]
     if article["summary"]:
         text += ". " + article["summary"]
+
+    # If RSS gave us little content, fetch the full article body
+    if len(text) < 200:
+        body = fetch_article_body(article["link"])
+        if body:
+            text = article["title"] + ". " + body
 
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -115,7 +135,7 @@ def summarize_in_hebrew(client, article):
             },
             {
                 "role": "user",
-                "content": f"Article: {text[:800]}",
+                "content": f"Article: {text[:2000]}",
             },
         ],
     )
