@@ -8,6 +8,7 @@ import re
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +58,7 @@ def get_new_articles(conn):
                         dt = datetime(*published[:6], tzinfo=timezone.utc)
                     else:
                         dt = datetime.now(timezone.utc)
-                    dt_local = dt.astimezone(timezone(timedelta(hours=3)))  # Israel time
+                    dt_local = dt.astimezone(ZoneInfo("Europe/Warsaw"))
                     new_articles.append({
                         "id": article_id,
                         "title": entry.get("title", ""),
