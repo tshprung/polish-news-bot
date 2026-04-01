@@ -62,6 +62,7 @@ def get_new_articles(conn):
                     dt_local = dt.astimezone(ZoneInfo("Europe/Warsaw"))
                     new_articles.append({
                         "id": article_id,
+                        "link": entry.get("link") or article_id,
                         "title": entry.get("title", ""),
                         "summary": re.sub(r"<[^>]+>", "", entry.get("summary", "")),
                         "source": feed.feed.get("title", feed_url),
@@ -172,7 +173,7 @@ def main():
                 )
                 conn.commit()
                 continue
-            message = f"{hebrew}\n\n<i>{article['source']} | {article['date']}</i>"
+            message = f"{hebrew}\n\n<a href=\"{article['link']}\">{article['source']} | {article['date']}</a>"
             send_to_telegram(message)
             conn.execute(
                 "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
