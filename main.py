@@ -104,6 +104,8 @@ def summarize_in_hebrew(client, article):
                     "- Be faithful to the facts — do not add, remove, or change information.\n"
                     "- Write in Hebrew. The only exception: proper nouns, official project names, and titles "
                     "(e.g. 'SAFE 0 proc.', 'NATO', 'PiS') must be kept in their original spelling — do not translate or transliterate them.\n"
+                    "- Every word must be entirely in one script — never mix Hebrew and Latin letters within a single word. "
+                    "For example, write 'Morawiecki' (all Latin) or 'מורבייצקי' (all Hebrew), never 'מורawiecki'.\n"
                     "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
                     "- Do NOT include any explanation, label, or reasoning — only the summary itself."
                 ),
