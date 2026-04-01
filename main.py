@@ -78,18 +78,25 @@ def summarize_in_hebrew(client, article):
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=80,
+        max_tokens=160,
         messages=[{
             "role": "user",
             "content": (
-                "Summarize the following Polish news article in Hebrew in up to 20 words. "
+                "You are a news filter for a Hebrew-language channel about Poland.\n"
+                "First, decide: is this article about Polish internal affairs, or does it directly influence Poland? "
+                "If NO, respond with exactly: SKIP\n"
+                "If YES, summarize it in Hebrew in up to 40 words. "
                 "Be faithful — do not add, remove, or change any information. "
+                "Use only Hebrew characters — no Latin, digits, or other characters. "
                 "Output only the Hebrew summary, nothing else.\n\n"
                 f"Article: {text[:600]}"
             ),
         }],
     )
-    return response.content[0].text.strip()
+    result = response.content[0].text.strip()
+    if result == "SKIP":
+        return None
+    return result
 
 
 def send_to_telegram(message):
@@ -113,6 +120,13 @@ def main():
     for article in new_articles:
         try:
             hebrew = summarize_in_hebrew(client, article)
+            if hebrew is None:
+                log.info(f"Skipped (not Poland-related): {article['title'][:70]}")
+                conn.execute(
+                    "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
+                )
+                conn.commit()
+                continue
             message = f"{hebrew}\n\n<i>{article['source']} | {article['date']}</i>"
             send_to_telegram(message)
             conn.execute(
@@ -120,7 +134,7 @@ def main():
             )
             conn.commit()
             log.info(f"Sent: {article['title'][:70]}")
-            time.sleep(2)
+            time.sleep(5)
         except Exception as e:
             log.error(f"Error on article {article['id']}: {e}")
 
