@@ -91,7 +91,8 @@ def summarize_in_hebrew(client, article):
                 "using correct grammar, natural word order, and proper Hebrew verb forms. "
                 "Do not translate word-for-word from Polish or English. "
                 "Be faithful to the facts — do not add, remove, or change any information. "
-                "Use only Hebrew characters — no Latin, digits, or other characters. "
+                "CRITICAL: Your output must contain ONLY Hebrew script characters and spaces. "
+                "Absolutely no Latin letters, digits, Chinese, Arabic, or any other script. "
                 "Output only the Hebrew summary, nothing else.\n\n"
                 f"Article: {text[:600]}"
             ),
@@ -100,7 +101,9 @@ def summarize_in_hebrew(client, article):
     result = response.content[0].text.strip()
     if result == "SKIP":
         return None
-    return result
+    # Strip any non-Hebrew characters (keep Hebrew block + niqqud + spaces/punctuation)
+    result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4F\s,.:;!?\"'-]", "", result).strip()
+    return result or None
 
 
 def send_to_telegram(message):
