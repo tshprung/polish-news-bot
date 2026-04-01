@@ -23,6 +23,13 @@ FEEDS = [
     "https://www.polsatnews.pl/rss/wszystkie.xml",
 ]
 
+SPORTS_KEYWORDS = re.compile(
+    r"\b(sport|pi[łl]k|mecz|liga|transfer|fifa|ekstraklasa|kibic|trener|bramk|"
+    r"mistrzostwa|turniej|olimp|zawodnik|skoczni|hokej|tenis|koszykówk|siatk[oó]wk|"
+    r"lekkoatletyk|wy[śs]cig|formu[łl]a\s*1|tour\s+de|rugby|krykiet|boks|wrestling)\b",
+    re.IGNORECASE,
+)
+
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
@@ -104,7 +111,7 @@ def summarize_in_hebrew(client, article):
             text = article["title"] + ". " + body
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         max_tokens=300,
         messages=[
             {
@@ -130,6 +137,7 @@ def summarize_in_hebrew(client, article):
                     "- Common nouns with standard Hebrew equivalents must use Hebrew "
                     "(e.g. synagogue → בית כנסת, church → כנסייה, parliament → פרלמנט).\n"
                     "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
+                    "- Only use real, standard Hebrew words that actually exist — never invent words.\n"
                     "- Output only the summary — no labels, explanations, or reasoning."
                 ),
             },
@@ -197,6 +205,13 @@ def main():
 
     for article in new_articles:
         try:
+            if SPORTS_KEYWORDS.search(article["title"]):
+                log.info(f"Skipped (sports keyword): {article['title'][:70]}")
+                conn.execute(
+                    "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
+                )
+                conn.commit()
+                continue
             hebrew, should_notify = summarize_in_hebrew(client, article)
             if hebrew is None:
                 if should_notify:
