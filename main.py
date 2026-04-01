@@ -84,7 +84,7 @@ def summarize_in_hebrew(client, article):
         text += ". " + article["summary"]
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         max_tokens=300,
         messages=[
             {
