@@ -123,13 +123,16 @@ def summarize_in_hebrew(client, article):
     if response.choices[0].finish_reason == "length":
         return None, True
     result = response.choices[0].message.content.strip()
-    if result == "SKIP":
+    if result.upper().startswith("SKIP"):
         return None, False
-    if result == "INSUFFICIENT":
+    if result.upper().startswith("INSUF"):
         return None, True
     # Strip non-Hebrew/non-Latin characters (block CJK and other exotic scripts)
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
+        return None, True
+    # If result has no Hebrew characters at all, it's a misrouted signal or English explanation
+    if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
         return None, True
     # Detect mixed-script words (Hebrew + Latin in same word)
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
