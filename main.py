@@ -6,7 +6,7 @@ import time
 import os
 import re
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -90,29 +90,29 @@ def summarize_in_hebrew(client, article):
             {
                 "role": "system",
                 "content": (
-                    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
+                    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n\n"
                     "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
-                    "  1. The word: SKIP  — if the article is NOT about Polish internal affairs "
-                    "and does not directly influence Poland.\n"
-                    "  2. The word: INSUFFICIENT  — if the article is relevant to Poland but the provided "
-                    "text is too incomplete to summarize faithfully.\n"
-                    "  3. A Hebrew summary of up to 30 words — if the article is relevant and has enough content.\n\n"
+                    "  1. SKIP — if the article is not about Polish internal affairs, "
+                    "does not directly influence Poland, or is about sports.\n"
+                    "  2. INSUFFICIENT — if the article is relevant to Poland but the text is too "
+                    "incomplete to summarize faithfully.\n"
+                    "  3. A Hebrew summary of up to 30 words.\n\n"
                     "Rules for the Hebrew summary:\n"
                     "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
-                    "- Use real Hebrew words — never transliterate foreign words when a Hebrew equivalent exists.\n"
-                    "- Do not translate word-for-word. Use correct grammar and natural Hebrew verb forms.\n"
+                    "- Correct grammar, natural Hebrew word order and verb forms. Never translate word-for-word.\n"
                     "- Be faithful to the facts — do not add, remove, or change information.\n"
-                    "- Write in Hebrew. The only exception: proper nouns, official project names, and titles "
-                    "(e.g. 'SAFE 0 proc.', 'NATO', 'PiS') must be kept in their original spelling — do not translate or transliterate them.\n"
-                    "- Every word must be entirely in one script — never mix Hebrew and Latin letters within a single word. "
-                    "For example, write 'Morawiecki' (all Latin) or 'מורבייצקי' (all Hebrew), never 'מורawiecki'.\n"
+                    "- Place names (cities, regions, countries) must stay in their original Polish spelling "
+                    "(e.g. Warszawa, Kraków, Gdańsk).\n"
+                    "- People's names, official project names, and acronyms must stay in their original "
+                    "Latin spelling (e.g. Morawiecki, NATO, PiS, 'SAFE 0 proc.').\n"
+                    "- Every word must be entirely in one script — never mix Hebrew and Latin within a single word.\n"
                     "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
-                    "- Do NOT include any explanation, label, or reasoning — only the summary itself."
+                    "- Output only the summary — no labels, explanations, or reasoning."
                 ),
             },
             {
                 "role": "user",
-                "content": f"Article: {text[:600]}",
+                "content": f"Article: {text[:800]}",
             },
         ],
     )
@@ -147,7 +147,7 @@ def notify_admin(article):
     msg = (
         f"⚠️ Could not summarize article (insufficient content):\n"
         f"<b>{article['title']}</b>\n"
-        f"{article['id']}"
+        f"{article['link']}"
     )
     try:
         send_to_telegram(msg, chat_id=ADMIN_TELEGRAM_ID)
