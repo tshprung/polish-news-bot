@@ -102,7 +102,9 @@ def summarize_in_hebrew(client, article):
                     "- Use real Hebrew words — never transliterate foreign words when a Hebrew equivalent exists.\n"
                     "- Do not translate word-for-word. Use correct grammar and natural Hebrew verb forms.\n"
                     "- Be faithful to the facts — do not add, remove, or change information.\n"
-                    "- ONLY Hebrew script characters and spaces. No Latin, digits, Chinese, Arabic, or any other script.\n"
+                    "- Write in Hebrew. The only exception: proper nouns, official project names, and titles "
+                    "(e.g. 'SAFE 0 proc.', 'NATO', 'PiS') must be kept in their original spelling — do not translate or transliterate them.\n"
+                    "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
                     "- Do NOT include any explanation, label, or reasoning — only the summary itself."
                 ),
             },
@@ -120,8 +122,8 @@ def summarize_in_hebrew(client, article):
         return None, False
     if result == "INSUFFICIENT":
         return None, True
-    # Strip any non-Hebrew characters (keep Hebrew block + niqqud + spaces/punctuation)
-    result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4F\s,.:;!?\"'-]", "", result).strip()
+    # Strip non-Hebrew/non-Latin characters (block CJK and other exotic scripts)
+    result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
         return None, True  # something slipped through — treat as insufficient
     return result, False
