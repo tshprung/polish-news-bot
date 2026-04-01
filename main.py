@@ -105,7 +105,10 @@ def summarize_in_hebrew(client, article):
                     "(e.g. Warszawa, Kraków, Gdańsk).\n"
                     "- People's names, official project names, and acronyms must stay in their original "
                     "Latin spelling (e.g. Morawiecki, NATO, PiS, 'SAFE 0 proc.').\n"
-                    "- Every word must be entirely in one script — never mix Hebrew and Latin within a single word.\n"
+                    "- Every word must be entirely in one script — never mix Hebrew and Latin within a single word. "
+                    "If you don't know the Hebrew word, use the full Latin word instead.\n"
+                    "- Common nouns with standard Hebrew equivalents must use Hebrew "
+                    "(e.g. synagogue → בית כנסת, church → כנסייה, parliament → פרלמנט).\n"
                     "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
                     "- Output only the summary — no labels, explanations, or reasoning."
                 ),
@@ -127,7 +130,13 @@ def summarize_in_hebrew(client, article):
     # Strip non-Hebrew/non-Latin characters (block CJK and other exotic scripts)
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
-        return None, True  # something slipped through — treat as insufficient
+        return None, True
+    # Detect mixed-script words (Hebrew + Latin in same word)
+    hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
+    latin_re = re.compile(r"[A-Za-z]")
+    for word in result.split():
+        if hebrew_re.search(word) and latin_re.search(word):
+            return None, True  # mixed-script word — skip and notify admin
     return result, False
 
 
