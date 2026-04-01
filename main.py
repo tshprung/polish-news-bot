@@ -83,11 +83,14 @@ def summarize_in_hebrew(client, article):
         messages=[{
             "role": "user",
             "content": (
-                "You are a news filter for a Hebrew-language channel about Poland.\n"
+                "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
                 "First, decide: is this article about Polish internal affairs, or does it directly influence Poland? "
                 "If NO, respond with exactly: SKIP\n"
-                "If YES, summarize it in Hebrew in up to 40 words. "
-                "Be faithful — do not add, remove, or change any information. "
+                "If YES, write a summary in up to 40 words. "
+                "Write in fluent, natural journalistic Hebrew — as a native Hebrew news editor would phrase it, "
+                "using correct grammar, natural word order, and proper Hebrew verb forms. "
+                "Do not translate word-for-word from Polish or English. "
+                "Be faithful to the facts — do not add, remove, or change any information. "
                 "Use only Hebrew characters — no Latin, digits, or other characters. "
                 "Output only the Hebrew summary, nothing else.\n\n"
                 f"Article: {text[:600]}"
