@@ -6,6 +6,7 @@ import time
 import os
 import re
 import logging
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 logging.basicConfig(
@@ -51,11 +52,19 @@ def get_new_articles(conn):
                     "SELECT 1 FROM seen_articles WHERE id = ?", (article_id,)
                 ).fetchone()
                 if not exists:
+                    published = entry.get("published_parsed")
+                    if published:
+                        dt = datetime(*published[:6], tzinfo=timezone.utc)
+                    else:
+                        dt = datetime.now(timezone.utc)
+                    dt_local = dt.astimezone(timezone(timedelta(hours=3)))  # Israel time
                     new_articles.append({
                         "id": article_id,
                         "title": entry.get("title", ""),
                         "summary": re.sub(r"<[^>]+>", "", entry.get("summary", "")),
                         "source": feed.feed.get("title", feed_url),
+                        "date": dt_local.strftime("%d.%m.%Y %H:%M"),
+                        "sort_key": dt,
                     })
         except Exception as e:
             log.error(f"Failed to fetch {feed_url}: {e}")
@@ -98,12 +107,13 @@ def main():
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
     new_articles = get_new_articles(conn)
+    new_articles.sort(key=lambda a: a["sort_key"])
     log.info(f"Found {len(new_articles)} new articles")
 
     for article in new_articles:
         try:
             hebrew = summarize_in_hebrew(client, article)
-            message = f"{hebrew}\n\n<i>{article['source']}</i>"
+            message = f"{hebrew}\n\n<i>{article['source']} | {article['date']}</i>"
             send_to_telegram(message)
             conn.execute(
                 "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
