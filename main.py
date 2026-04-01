@@ -84,28 +84,32 @@ def summarize_in_hebrew(client, article):
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=160,
-        messages=[{
-            "role": "user",
-            "content": (
-                "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
-                "First, decide: is this article about Polish internal affairs, or does it directly influence Poland? "
-                "If NO, respond with exactly: SKIP\n"
-                "If YES but the provided text is too incomplete to summarize faithfully, "
-                "respond with exactly: INSUFFICIENT\n"
-                "Otherwise write a summary in up to 40 words. "
-                "Write in fluent, natural journalistic Hebrew — as a native Hebrew news editor would phrase it, "
-                "using correct grammar, natural word order, and proper Hebrew verb forms. "
-                "Do not translate word-for-word from Polish or English. "
-                "Be faithful to the facts — do not add, remove, or change any information. "
-                "CRITICAL: Your output must contain ONLY Hebrew script characters and spaces. "
-                "Absolutely no Latin letters, digits, Chinese, Arabic, or any other script. "
-                "Never output explanations or English text under any circumstances. "
-                "Output only the Hebrew summary, nothing else.\n\n"
-                f"Article: {text[:600]}"
-            ),
-        }],
+        max_tokens=300,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
+                    "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
+                    "  1. The word: SKIP  — if the article is NOT about Polish internal affairs "
+                    "and does not directly influence Poland.\n"
+                    "  2. The word: INSUFFICIENT  — if the article is relevant to Poland but the provided "
+                    "text is too incomplete to summarize faithfully.\n"
+                    "  3. A Hebrew summary of up to 30 words — if the article is relevant and has enough content.\n\n"
+                    "Rules for the Hebrew summary:\n"
+                    "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
+                    "- Do not translate word-for-word. Use correct grammar and natural Hebrew verb forms.\n"
+                    "- Be faithful to the facts — do not add, remove, or change information.\n"
+                    "- ONLY Hebrew script characters and spaces. No Latin, digits, Chinese, Arabic, or any other script.\n"
+                    "- Do NOT include any explanation, label, or reasoning — only the summary itself.\n\n"
+                    f"Article: {text[:600]}"
+                ),
+            },
+        ],
     )
+    # Guard against truncation — a cut-off summary is worse than no summary
+    if response.stop_reason == "max_tokens":
+        return None, True
     result = response.content[0].text.strip()
     if result == "SKIP":
         return None, False
