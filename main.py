@@ -153,10 +153,23 @@ def deduplicate(articles):
 def fetch_article_body(url):
     """Fetch full article text from URL. Returns plain text, stripped of HTML tags."""
     try:
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
+        }
+        resp = requests.get(url, timeout=10, headers=headers)
         resp.raise_for_status()
-        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
-        text = " ".join(re.sub(r"<[^>]+>", "", p) for p in paragraphs)
+        html = resp.text
+        # Try <article> block first, fall back to all <p> tags
+        article_match = re.search(r"<article[^>]*>(.*?)</article>", html, re.DOTALL)
+        source = article_match.group(1) if article_match else html
+        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
+        text = " ".join(re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40)
         return text.strip()
     except Exception as e:
         log.warning(f"Could not fetch article body from {url}: {e}")
@@ -201,13 +214,11 @@ def summarize_in_hebrew(client, article):
     if article["summary"]:
         text += ". " + article["summary"]
 
-    # If RSS gave us little content, fetch the full article body
-    fetched_body = False
-    if len(text) < 200:
-        body = fetch_article_body(article["link"])
-        if body:
-            text = article["title"] + ". " + body
-            fetched_body = True
+    # Always fetch the full article body for best summarization quality
+    body = fetch_article_body(article["link"])
+    fetched_body = bool(body)
+    if body:
+        text = article["title"] + ". " + body
 
     # Stage 1: classify with cheap model — only filters obvious non-Poland/sports
     decision = classify(client, text)
