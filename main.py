@@ -8,6 +8,7 @@ import time
 import os
 import re
 import logging
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,13 +38,30 @@ FEEDS = [
 
 # Drop near-duplicate stories across outlets (different headlines, same event).
 DEDUP_WINDOW_HOURS = 8
-DEDUP_JACCARD_MIN = 0.175
-DEDUP_DICE_MIN = 0.42
+DEDUP_JACCARD_MIN = 0.15
+DEDUP_DICE_MIN = 0.38
 DEDUP_STRONG_INTERSECTION = 5  # with Jaccard >= DEDUP_JACCARD_RELAXED
-DEDUP_JACCARD_RELAXED = 0.12
+DEDUP_JACCARD_RELAXED = 0.11
+# Same event, different headline (different politician quoted): high overlap on smaller set
+DEDUP_OVERLAP_MIN = 0.38  # |A∩B| / min(|A|, |B|)
+DEDUP_OVERLAP_MIN_TOKENS = 5
+DEDUP_OVERLAP_SET_MIN = 6  # min(|A|, |B|) must be at least this for overlap rule
+DEDUP_CONTENT_SUMMARY_CHARS = 2500  # more RSS text for cross-outlet matching
+
+_PL_FOLD = str.maketrans(
+    "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
+    "acelnoszzacelnoszz",
+)
+
+
+def _fold_pl(token: str) -> str:
+    """Fold Polish diacritics so sędziów / sedziow count as overlap."""
+    return unicodedata.normalize("NFC", token).translate(_PL_FOLD).lower()
+
 
 POLISH_STOPWORDS = frozenset(
-    """
+    _fold_pl(w)
+    for w in """
     a albo ani oraz jednak natomiast więc dlatego ponadto przy tym
     i lub czy też także również nadal już jeszcze bardzo bardziej
     nie tak tylko może pewnie
@@ -170,25 +188,29 @@ def get_new_articles(conn):
 
 
 def title_words(title):
-    """Return a set of lowercased words from a title, stripped of punctuation."""
-    return set(re.sub(r"[^\w\s]", "", title.lower()).split())
+    """Return a set of folded words from a title (diacritics normalized for dedup)."""
+    words = re.findall(r"[\w]+", re.sub(r"[^\w\s]", " ", title.lower()))
+    return {w for w in (_fold_pl(x) for x in words) if len(w) > 0}
 
 
 def tokens_from_blob(blob: str) -> set:
-    """Content words for similarity: lowercase, length ≥3, stopwords removed."""
-    words = re.findall(r"[\w]+|\d{4}", blob.lower())
+    """Content words for similarity: folded, length ≥3, stopwords removed."""
+    words = re.findall(r"[\w]+|\d{4}", unicodedata.normalize("NFC", blob.lower()))
     out = set()
     for w in words:
-        if len(w) < 3 and not (w.isdigit() and len(w) >= 4):
+        wf = _fold_pl(w)
+        if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
             continue
-        if w in POLISH_STOPWORDS:
+        if wf in POLISH_STOPWORDS:
             continue
-        out.add(w)
+        out.add(wf)
     return out
 
 
-def content_tokens(article) -> set[str]:
-    blob = f"{article['title']} {(article.get('summary') or '')[:1400]}"
+def content_tokens(article) -> set:
+    blob = (
+        f"{article['title']} {(article.get('summary') or '')[:DEDUP_CONTENT_SUMMARY_CHARS]}"
+    )
     return tokens_from_blob(blob)
 
 
@@ -203,6 +225,13 @@ def token_similarity(a: set, b: set) -> tuple:
     return j, d, inter
 
 
+def _overlap_coefficient(a: set, b: set) -> float:
+    """Szymkiewicz–Simpson: how much of the smaller article's vocabulary is shared."""
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
 def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     dt = abs((article["sort_key"] - seen["sort_key"]).total_seconds())
     if dt > window.total_seconds():
@@ -210,6 +239,8 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
 
     ca, cs = content_tokens(article), content_tokens(seen)
     j, dice, n_inter = token_similarity(ca, cs)
+    oc = _overlap_coefficient(ca, cs)
+    mn = min(len(ca), len(cs))
 
     tw_a, tw_s = title_words(article["title"]), title_words(seen["title"])
     title_frac = (
@@ -220,6 +251,14 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
         return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
     if n_inter >= DEDUP_STRONG_INTERSECTION and j >= DEDUP_JACCARD_RELAXED:
         return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
+    if (
+        oc >= DEDUP_OVERLAP_MIN
+        and n_inter >= DEDUP_OVERLAP_MIN_TOKENS
+        and mn >= DEDUP_OVERLAP_SET_MIN
+    ):
+        return True, f"overlap={oc:.2f} j={j:.2f} ({n_inter} shared)"
+    if oc >= 0.46 and n_inter >= 4 and mn >= 5:
+        return True, f"overlap={oc:.2f} j={j:.2f} ({n_inter} shared, tight)"
     if title_frac >= 0.58:
         return True, f"title={title_frac:.0%} overlap"
 
