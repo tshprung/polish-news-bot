@@ -36,7 +36,10 @@ ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
 SYSTEM_PROMPT = (
-    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n\n"
+    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n"
+    "CONTEXT: All articles come from Polish news sources. All events take place in Poland unless explicitly stated otherwise. "
+    "All people mentioned are Polish unless explicitly stated otherwise. "
+    "Never assume or imply a different country or nationality.\n\n"
     "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
     "  1. SKIP — if the article is not about Polish internal affairs, "
     "does not directly influence Poland, or is about sports.\n"
