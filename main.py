@@ -106,6 +106,10 @@ SYSTEM_PROMPT = (
     "- First significant output for a Hebrew summary must be Hebrew text "
     "(Latin only inside the sentence for names, places, acronyms).\n"
     "- SKIP / INSUFFICIENT must match exactly.\n"
+    "- INSUFFICIENT only when the text adds almost no usable facts beyond the title.\n"
+    "- Short wires and brief reports: if place, event, and outcome are stated, summarize.\n"
+    "- Interviews/podcasts: you may summarize who said what and on which topic, factually.\n"
+    "- Accidents involving minors: state facts dryly, no graphic or sensational detail.\n"
     "- No hallucinations or assumptions.\n"
     "- Do not repeat or quote the article; paraphrase.\n"
     "- If the headline is clear → summarize.\n\n"
@@ -304,27 +308,50 @@ def _article_body_from_dom(stripped_html: str) -> str:
         from bs4 import BeautifulSoup
     except ImportError:
         return ""
+
+    def cleanup_root(r):
+        for sel in (
+            "ad-default",
+            "aside",
+            ".ods-m-bullet-list",
+            ".ods-o-authorship-bottom",
+            ".ods-c-share-buttons-wrapper",
+            ".ods-m-socials-stream",
+            ".ods-m-tts-player",
+            ".ods-o-authorship-top",
+            ".ods-c-actionbar",
+            ".ods-c-modal-premium",
+            ".ods-o-onetchat-widget-chat",
+        ):
+            for tag in r.select(sel):
+                tag.decompose()
+
     soup = BeautifulSoup(stripped_html, "html.parser")
+    for jid in ("pianoOffer", "pianoInfo"):
+        for tag in soup.find_all(id=jid):
+            tag.decompose()
+
     root = soup.select_one("[class*='ods-article-body']")
     if root is None:
         root = soup.find("article")
     if root is None:
         return ""
-    for sel in (
-        "ad-default",
-        "aside",
-        ".ods-m-bullet-list",
-        ".ods-o-authorship-bottom",
-        ".ods-c-share-buttons-wrapper",
-        ".ods-m-socials-stream",
-        ".ods-m-tts-player",
-        ".ods-o-authorship-top",
-    ):
-        for tag in root.select(sel):
-            tag.decompose()
-    block = root.get_text(separator="\n", strip=True)
+    scope = root
+
+    cleanup_root(scope)
+    block = scope.get_text(separator="\n", strip=True)
     lines = [ln for ln in (x.strip() for x in block.splitlines()) if len(ln) > 12]
-    return "\n".join(lines)
+    primary = "\n".join(lines)
+
+    # Onet podcast/premium: copy is often only in div.ods-a-body-text; also avoids piano/UI drowning the start.
+    body_chunks = []
+    for div in scope.select("div.ods-a-body-text"):
+        chunk = div.get_text(separator=" ", strip=True)
+        if len(chunk) > 25:
+            body_chunks.append(chunk)
+    fallback = "\n".join(body_chunks)
+
+    return fallback if len(fallback) > len(primary) else primary
 
 
 def fetch_article_body(url):
@@ -456,19 +483,40 @@ def summarize_in_hebrew(client, article):
     if decision == "SKIP":
         return None, None  # silent skip, not Poland-related
 
-    def call_stage2(t):
+    # Longer slice: Onet UI/piano can eat the first ~2k chars; interviews need more context.
+    stage2_limit = 4000
+
+    def call_stage2(user_blob: str):
         return client.chat.completions.create(
             model="gpt-4o",
             max_tokens=400,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Article: {t[:2000]}"},
+                {"role": "user", "content": user_blob},
             ],
         )
 
-    # Stage 2: summarize with powerful model (retry once on bad response)
+    insufficient_retry_note = (
+        "Note: The article text above is long enough that it likely contains facts. "
+        "If it states what happened, where, and the main outcome (even briefly), "
+        "write a factual Hebrew summary without sensational wording. "
+        "Reply INSUFFICIENT only if the body adds almost nothing beyond the headline."
+    )
+    short_retry_note = (
+        "Note: You must output a Hebrew summary sentence (not empty, not only punctuation). "
+        f"Max {MAX_SUMMARY_WORDS} words."
+    )
+
+    result = ""
+    used_insuf_retry = False
     for attempt in range(2):
-        response = call_stage2(text)
+        user_blob = f"Article: {text[:stage2_limit]}"
+        if attempt == 1 and used_insuf_retry:
+            user_blob = f"{user_blob}\n\n{insufficient_retry_note}"
+        elif attempt == 1 and len(result) > 0 and len(result) < 15:
+            user_blob = f"{user_blob}\n\n{short_retry_note}"
+
+        response = call_stage2(user_blob)
         finish = response.choices[0].finish_reason
         if finish == "content_filter":
             return None, "blocked by content policy (content_filter)"
@@ -478,14 +526,24 @@ def summarize_in_hebrew(client, article):
 
         if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
             return None, None
-        if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
+
+        is_insuf = result.upper().startswith("INSUF") or result.startswith("לא מספיק")
+        if is_insuf:
             if not body_available:
                 return None, "body not accessible (paywall or blocked)"
+            if body_available and len(text) > 550 and not used_insuf_retry and attempt == 0:
+                used_insuf_retry = True
+                log.info("Stage 2 INSUFFICIENT with long body — retry with hint")
+                continue
             return None, "insufficient content even with full article"
+
         if len(result) >= 15:
             break
         log.warning(f"Stage 2 response too short (attempt {attempt + 1}): '{result}'")
-    else:
+        if attempt >= 1:
+            return None, "response too short after retry"
+
+    if len(result) < 15:
         return None, "response too short after retry"
 
     # Allow Hebrew, Latin, digits, Polish diacritics (ą ć ę ł ń ó ś ź ż etc.), punctuation
