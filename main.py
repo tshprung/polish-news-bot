@@ -2,12 +2,14 @@ import feedparser
 import sqlite3
 import requests
 from openai import OpenAI
+import html
 import time
 import os
 import re
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(
@@ -38,13 +40,20 @@ SPORTS_KEYWORDS = re.compile(
 
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
+# Summaries: align model instruction, validation cap, and user-facing expectation.
+MAX_SUMMARY_WORDS = 40
+MAX_SUMMARY_WORDS_HARD = 48  # small slack above prompt limit (counts Latin names as words)
+
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
 SYSTEM_PROMPT = (
-    "You are a Hebrew news editor for a Telegram channel for Israelis in Poland.\n\n"
+    "You are a Hebrew news editor for a Telegram channel.\n\n"
+    "AUDIENCE\n"
+    "- Hebrew speakers who live in Poland; they follow Polish national news.\n"
+    "- Summarize in Hebrew so they grasp the story quickly; keep Polish context where needed.\n\n"
     "CONTEXT\n"
     "- Articles are from Polish media.\n"
     "- Assume Poland unless stated otherwise.\n"
@@ -53,21 +62,24 @@ SYSTEM_PROMPT = (
     "Return exactly one:\n"
     "1. SKIP — sports / not Polish internal affairs / no impact on life in Poland\n"
     "2. INSUFFICIENT — missing or unclear key facts\n"
-    "3. Hebrew summary — one sentence, ≤30 words\n\n"
+    "3. Hebrew summary — one or two short sentences, "
+    f"≤{MAX_SUMMARY_WORDS} words total\n\n"
     "RULES\n"
-    "- Output only one option (no explanations).\n"
+    "- Output only one option (no explanations, no preamble in Polish or English).\n"
+    "- First significant output for a Hebrew summary must be Hebrew text "
+    "(Latin only inside the sentence for names, places, acronyms).\n"
     "- SKIP / INSUFFICIENT must match exactly.\n"
     "- No hallucinations or assumptions.\n"
-    "- Do not repeat input text.\n"
-    "- If headline alone is clear → summarize.\n\n"
+    "- Do not repeat or quote the article; paraphrase.\n"
+    "- If the headline is clear → summarize.\n\n"
     "HEBREW\n"
     "- Natural, fluent, factual.\n"
     "- Keep Polish place names (e.g. Warszawa).\n"
     "- Keep names/orgs in Latin (e.g. NATO, PiS).\n"
-    "- No mixed scripts in a word.\n"
+    "- No mixed scripts within a single word.\n"
     "- Use standard Hebrew words only.\n\n"
     "OUTPUT\n"
-    "SKIP / INSUFFICIENT / ≤30-word Hebrew sentence"
+    f"SKIP / INSUFFICIENT / ≤{MAX_SUMMARY_WORDS}-word Hebrew summary"
 )
 
 
@@ -121,8 +133,11 @@ def title_words(title):
     return set(re.sub(r"[^\w\s]", "", title.lower()).split())
 
 
-def deduplicate(articles):
-    """Remove articles whose title is very similar to an earlier article within 2 hours."""
+def deduplicate(conn, articles):
+    """Remove articles whose title is very similar to an earlier article within 2 hours.
+
+    Dropped duplicates are marked seen so the same RSS id is not retried every run.
+    """
     kept = []
     for article in articles:
         words = title_words(article["title"])
@@ -139,9 +154,13 @@ def deduplicate(articles):
                         f"Duplicate ({overlap:.0%} overlap): '{article['title'][:60]}' "
                         f"~ '{seen['title'][:60]}'"
                     )
+                    conn.execute(
+                        "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
+                    )
                     break
         if not is_duplicate:
             kept.append(article)
+    conn.commit()
     return kept
 
 
@@ -221,7 +240,6 @@ def summarize_in_hebrew(client, article):
         rss_text += ". " + article["summary"]
 
     # Skip fetching for known paywalled domains
-    from urllib.parse import urlparse
     domain = urlparse(article["link"]).netloc.lstrip("www.")
     if domain in PAYWALLED_DOMAINS:
         return None, f"paywalled domain ({domain})"
@@ -249,9 +267,12 @@ def summarize_in_hebrew(client, article):
     # Stage 2: summarize with powerful model (retry once on bad response)
     for attempt in range(2):
         response = call_stage2(text)
-        if response.choices[0].finish_reason == "length":
+        finish = response.choices[0].finish_reason
+        if finish == "content_filter":
+            return None, "blocked by content policy (content_filter)"
+        if finish == "length":
             return None, "response truncated"
-        result = response.choices[0].message.content.strip()
+        result = (response.choices[0].message.content or "").strip()
 
         if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
             return None, None
@@ -271,9 +292,12 @@ def summarize_in_hebrew(client, article):
         return None, "sanitization left empty result"
     if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
         return None, "no Hebrew characters in result"
-    # Must start with a Hebrew character — catches echoed Polish/Latin input
-    if not re.match(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
-        return None, "result starts with non-Hebrew (possible echoed input)"
+    # Allow Latin prefixes (quoted show titles, names, PiS/NATO) before the Hebrew sentence.
+    # Drop echoed Polish only when almost no real Hebrew remains after the prefix.
+    m_heb = re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result)
+    result = result[m_heb.start() :].strip()
+    if len(result) < 15:
+        return None, "Hebrew too short after removing leading non-Hebrew (likely echoed input)"
 
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
     latin_re = re.compile(r"[A-Za-z]")
@@ -281,7 +305,19 @@ def summarize_in_hebrew(client, article):
         if hebrew_re.search(token) and latin_re.search(token):
             return None, f"mixed-script word detected: '{token}'"
 
+    word_count = len(result.split())
+    if word_count > MAX_SUMMARY_WORDS_HARD:
+        return None, f"summary too long ({word_count} words, max {MAX_SUMMARY_WORDS})"
+
     return result, None
+
+
+def _telegram_html_anchor(url: str, label: str) -> str:
+    """Build <a href> for Telegram HTML; escape entities in URL and label."""
+    return (
+        f"<a href=\"{html.escape(url, quote=True)}\">"
+        f"{html.escape(label, quote=False)}</a>"
+    )
 
 
 def send_to_telegram(message, chat_id=None):
@@ -291,17 +327,24 @@ def send_to_telegram(message, chat_id=None):
         json={"chat_id": chat_id or CHANNEL_ID, "text": message, "parse_mode": "HTML"},
         timeout=10,
     )
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError:
+        detail = ""
+        try:
+            detail = resp.json().get("description", "")
+        except Exception:
+            detail = resp.text[:200]
+        log.error("Telegram API error: %s — %s", resp.status_code, detail)
+        raise
 
 
 def notify_admin(article, reason):
     if not ADMIN_TELEGRAM_ID:
         return
-    msg = (
-        f"⚠️ Skipped article ({reason}):\n"
-        f"<b>{article['title']}</b>\n"
-        f"{article['link']}"
-    )
+    reason_esc = html.escape(str(reason), quote=False)
+    title_esc = html.escape(article["title"], quote=False)
+    msg = f"⚠️ Skipped article ({reason_esc}):\n<b>{title_esc}</b>\n{article['link']}"
     try:
         send_to_telegram(msg, chat_id=ADMIN_TELEGRAM_ID)
     except Exception as e:
@@ -312,9 +355,12 @@ def main():
     conn = init_db()
     client = OpenAI()  # reads OPENAI_API_KEY from env
 
+    if not ADMIN_TELEGRAM_ID:
+        log.warning("ADMIN_TELEGRAM_ID is unset — failed articles will not DM you")
+
     new_articles = get_new_articles(conn)
     new_articles.sort(key=lambda a: a["sort_key"])
-    new_articles = deduplicate(new_articles)
+    new_articles = deduplicate(conn, new_articles)
     log.info(f"Found {len(new_articles)} new articles after deduplication")
 
     for article in new_articles:
@@ -338,7 +384,9 @@ def main():
                 )
                 conn.commit()
                 continue
-            message = f"{hebrew}\n\n<a href=\"{article['link']}\">{article['source']} | {article['date']}</a>"
+            body = html.escape(hebrew, quote=False)
+            footer_label = f"{article['source']} | {article['date']}"
+            message = f"{body}\n\n{_telegram_html_anchor(article['link'], footer_label)}"
             send_to_telegram(message)
             conn.execute(
                 "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
@@ -347,7 +395,11 @@ def main():
             log.info(f"Sent: {article['title'][:70]}")
             time.sleep(5)
         except Exception as e:
-            log.error(f"Error on article {article['id']}: {e}")
+            log.exception("Error on article %s", article["id"])
+            try:
+                notify_admin(article, f"runtime error: {e}")
+            except Exception:
+                pass
 
     conn.close()
 
