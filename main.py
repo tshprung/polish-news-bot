@@ -19,16 +19,19 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 FEEDS = [
+    # General national (headlines from several editorial lenses)
     "https://tvn24.pl/rss/najwazniejsze.xml",
     "https://www.rmf24.pl/fakty/feed",
     "https://wiadomosci.onet.pl/.feed",
     "https://www.polsatnews.pl/rss/wszystkie.xml",
-    # wyborcza.pl removed — paywalled, article body not accessible
-
-    # rp.pl removed — JS-rendered content, not accessible via static scraping
-
     "https://wydarzenia.interia.pl/feed",
     "https://wiadomosci.wp.pl/rss.xml",
+    "https://wiadomosci.gazeta.pl/pub/rss/wiadomosci.xml",
+    # PAP wire — domestic politics/society + economy (factual backbone; expect overlap with portals)
+    "https://pap-mediaroom.pl/kategoria/polityka-i-społeczeństwo/rss.xml",
+    "https://pap-mediaroom.pl/kategoria/biznes-i-finanse/rss.xml",
+    # wyborcza.pl removed — paywalled, article body not accessible
+    # rp.pl removed — JS-rendered content, not accessible via static scraping
 ]
 
 SPORTS_KEYWORDS = re.compile(
