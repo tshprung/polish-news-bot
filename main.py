@@ -258,7 +258,8 @@ def summarize_in_hebrew(client, article):
     if len(result) < 15:
         return None, True
 
-    result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
+    # Allow Hebrew, Latin, digits, Polish diacritics (ą ć ę ł ń ó ś ź ż etc.), punctuation
+    result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
         return None, True
     if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
