@@ -6,7 +6,7 @@ import time
 import os
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -34,6 +34,33 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
+
+SYSTEM_PROMPT = (
+    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n\n"
+    "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
+    "  1. SKIP — if the article is not about Polish internal affairs, "
+    "does not directly influence Poland, or is about sports.\n"
+    "  2. INSUFFICIENT — if the article is relevant to Poland but the text is too "
+    "incomplete to summarize faithfully.\n"
+    "IMPORTANT: SKIP and INSUFFICIENT must be written in English Latin characters exactly as shown — never translate or transliterate them.\n"
+    "  3. A Hebrew summary of up to 30 words.\n\n"
+    "Rules for the Hebrew summary:\n"
+    "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
+    "- Correct grammar, natural Hebrew word order and verb forms. Never translate word-for-word.\n"
+    "- Be faithful to the facts — do not add, remove, or change information. "
+    "In particular: do not confuse nationalities — Polish people are פולנים, not ישראלים.\n"
+    "- Place names (cities, regions, countries) must stay in their original Polish spelling "
+    "(e.g. Warszawa, Kraków, Gdańsk).\n"
+    "- People's names, official project names, and acronyms must stay in their original "
+    "Latin spelling (e.g. Morawiecki, NATO, PiS, 'SAFE 0 proc.').\n"
+    "- Every word must be entirely in one script — never mix Hebrew and Latin within a single word. "
+    "If you don't know the Hebrew word, use the full Latin word instead.\n"
+    "- Common nouns with standard Hebrew equivalents must use Hebrew "
+    "(e.g. synagogue → בית כנסת, church → כנסייה, parliament → פרלמנט, cheater → נוכל, factory → מפעל).\n"
+    "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
+    "- Only use real, standard Hebrew words that actually exist — never invent words.\n"
+    "- Output only the summary — no labels, explanations, or reasoning."
+)
 
 
 def init_db():
@@ -81,18 +108,64 @@ def get_new_articles(conn):
     return new_articles
 
 
+def title_words(title):
+    """Return a set of lowercased words from a title, stripped of punctuation."""
+    return set(re.sub(r"[^\w\s]", "", title.lower()).split())
+
+
+def deduplicate(articles):
+    """Remove articles whose title is very similar to an earlier article within 2 hours."""
+    kept = []
+    for article in articles:
+        words = title_words(article["title"])
+        is_duplicate = False
+        for seen in kept:
+            if abs((article["sort_key"] - seen["sort_key"]).total_seconds()) <= 7200:
+                seen_words = title_words(seen["title"])
+                if not words or not seen_words:
+                    continue
+                overlap = len(words & seen_words) / max(len(words), len(seen_words))
+                if overlap >= 0.6:
+                    is_duplicate = True
+                    log.info(
+                        f"Duplicate ({overlap:.0%} overlap): '{article['title'][:60]}' "
+                        f"~ '{seen['title'][:60]}'"
+                    )
+                    break
+        if not is_duplicate:
+            kept.append(article)
+    return kept
+
+
 def fetch_article_body(url):
     """Fetch full article text from URL. Returns plain text, stripped of HTML tags."""
     try:
         resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
-        # Extract text from <p> tags only — avoids nav/ads/footer noise
         paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
         text = " ".join(re.sub(r"<[^>]+>", "", p) for p in paragraphs)
         return text.strip()
     except Exception as e:
         log.warning(f"Could not fetch article body from {url}: {e}")
         return ""
+
+
+def classify(client, text):
+    """Stage 1: cheap model decides SKIP / INSUFFICIENT / GO."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        max_tokens=20,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Article: {text[:2000]}\n\nReply with SKIP, INSUFFICIENT, or GO."},
+        ],
+    )
+    result = response.choices[0].message.content.strip().upper()
+    if result.startswith("SKIP") or "סקיפ" in result:
+        return "SKIP"
+    if result.startswith("INSUF") or result.startswith("GO") is False and len(result) < 15:
+        return "INSUFFICIENT"
+    return "GO"
 
 
 def summarize_in_hebrew(client, article):
@@ -110,68 +183,45 @@ def summarize_in_hebrew(client, article):
         if body:
             text = article["title"] + ". " + body
 
+    # Stage 1: classify with cheap model
+    decision = classify(client, text)
+    if decision == "SKIP":
+        return None, False
+    if decision == "INSUFFICIENT":
+        return None, True
+
+    # Stage 2: summarize with powerful model
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         max_tokens=300,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a news editor writing for a Hebrew-language Telegram channel about Poland.\n\n"
-                    "Respond with EXACTLY one of these three options — no other text, no reasoning, no preamble:\n"
-                    "  1. SKIP — if the article is not about Polish internal affairs, "
-                    "does not directly influence Poland, or is about sports.\n"
-                    "  2. INSUFFICIENT — if the article is relevant to Poland but the text is too "
-                    "incomplete to summarize faithfully.\n"
-                    "IMPORTANT: SKIP and INSUFFICIENT must be written in English Latin characters exactly as shown — never translate or transliterate them.\n"
-                    "  3. A Hebrew summary of up to 30 words.\n\n"
-                    "Rules for the Hebrew summary:\n"
-                    "- Fluent, natural journalistic Hebrew as a native editor would write it.\n"
-                    "- Correct grammar, natural Hebrew word order and verb forms. Never translate word-for-word.\n"
-                    "- Be faithful to the facts — do not add, remove, or change information.\n"
-                    "- Place names (cities, regions, countries) must stay in their original Polish spelling "
-                    "(e.g. Warszawa, Kraków, Gdańsk).\n"
-                    "- People's names, official project names, and acronyms must stay in their original "
-                    "Latin spelling (e.g. Morawiecki, NATO, PiS, 'SAFE 0 proc.').\n"
-                    "- Every word must be entirely in one script — never mix Hebrew and Latin within a single word. "
-                    "If you don't know the Hebrew word, use the full Latin word instead.\n"
-                    "- Common nouns with standard Hebrew equivalents must use Hebrew "
-                    "(e.g. synagogue → בית כנסת, church → כנסייה, parliament → פרלמנט).\n"
-                    "- No Chinese, Arabic, or any non-Latin/non-Hebrew script.\n"
-                    "- Only use real, standard Hebrew words that actually exist — never invent words.\n"
-                    "- Output only the summary — no labels, explanations, or reasoning."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Article: {text[:2000]}",
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Article: {text[:2000]}"},
         ],
     )
-    # Guard against truncation — a cut-off summary is worse than no summary
     if response.choices[0].finish_reason == "length":
         return None, True
     result = response.choices[0].message.content.strip()
+
     if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
         return None, False
-    if result.upper().startswith("INSUF") or result.startswith("אינסאפ") or result.startswith("לא מספיק"):
+    if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
         return None, True
-    # Suspiciously short — likely a misrouted signal
     if len(result) < 15:
         return None, True
-    # Strip non-Hebrew/non-Latin characters (block CJK and other exotic scripts)
+
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
         return None, True
-    # If result has no Hebrew characters at all, it's a misrouted signal or English explanation
     if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
         return None, True
-    # Detect mixed-script words (Hebrew + Latin in same word)
+
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
     latin_re = re.compile(r"[A-Za-z]")
     for word in result.split():
         if hebrew_re.search(word) and latin_re.search(word):
-            return None, True  # mixed-script word — skip and notify admin
+            return None, True
+
     return result, False
 
 
@@ -205,7 +255,8 @@ def main():
 
     new_articles = get_new_articles(conn)
     new_articles.sort(key=lambda a: a["sort_key"])
-    log.info(f"Found {len(new_articles)} new articles")
+    new_articles = deduplicate(new_articles)
+    log.info(f"Found {len(new_articles)} new articles after deduplication")
 
     for article in new_articles:
         try:
