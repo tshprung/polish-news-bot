@@ -261,20 +261,24 @@ def summarize_in_hebrew(client, article):
             ],
         )
 
-    # Stage 2: summarize with powerful model
-    response = call_stage2(text)
-    if response.choices[0].finish_reason == "length":
-        return None, "response truncated"
-    result = response.choices[0].message.content.strip()
+    # Stage 2: summarize with powerful model (retry once on bad response)
+    for attempt in range(2):
+        response = call_stage2(text)
+        if response.choices[0].finish_reason == "length":
+            return None, "response truncated"
+        result = response.choices[0].message.content.strip()
 
-    if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
-        return None, None
-    if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
-        if not body_available:
-            return None, "body not accessible (paywall or blocked)"
-        return None, "insufficient content even with full article"
-    if len(result) < 15:
-        return None, "response too short"
+        if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
+            return None, None
+        if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
+            if not body_available:
+                return None, "body not accessible (paywall or blocked)"
+            return None, "insufficient content even with full article"
+        if len(result) >= 15:
+            break
+        log.warning(f"Stage 2 response too short (attempt {attempt + 1}): '{result}'")
+    else:
+        return None, "response too short after retry"
 
     # Allow Hebrew, Latin, digits, Polish diacritics (ą ć ę ł ń ó ś ź ż etc.), punctuation
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result).strip()
