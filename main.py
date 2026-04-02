@@ -8,7 +8,7 @@ import time
 import os
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -34,6 +34,39 @@ FEEDS = [
     # wyborcza.pl removed — paywalled, article body not accessible
     # rp.pl removed — JS-rendered content, not accessible via static scraping
 ]
+
+# Drop near-duplicate stories across outlets (different headlines, same event).
+DEDUP_WINDOW_HOURS = 8
+DEDUP_JACCARD_MIN = 0.175
+DEDUP_DICE_MIN = 0.42
+DEDUP_STRONG_INTERSECTION = 5  # with Jaccard >= DEDUP_JACCARD_RELAXED
+DEDUP_JACCARD_RELAXED = 0.12
+
+POLISH_STOPWORDS = frozenset(
+    """
+    a albo ani oraz jednak natomiast więc dlatego ponadto przy tym
+    i lub czy też także również nadal już jeszcze bardzo bardziej
+    nie tak tylko może pewnie
+    to ta ten tego tej tych tym tą tę tam tamten
+    że żeby żebym ze który która które których którym którymi
+    jak jaki jaka jakie jakiś jakaś jakieś jakich jakim
+    co czym czego
+    kiedy gdy gdzie dokąd skąd dlaczego czemu
+    kto kogo komu kim
+    ci te jej jego ich im go mu ją nią nimi
+    nas nasz wasz swój swoje swoją mój twój nasi nasze wasze
+    być jest są był była było były będzie mogą ma mają musi muszą
+    się sobie siebie sobą
+    swoim
+    mnie mi mną tobie cię ci tobą
+    pod nad między bez wokół przez dla przeciw ku od do ze z za na w we u o
+    po przy
+    takie samo samą samym samych sam sama sami same
+    dzisiaj dziś wczoraj jutro dnia godz min sek
+    www http https com pl
+    video zobacz czytaj więcej foto zdjęcie
+    """.split()
+)
 
 SPORTS_KEYWORDS = re.compile(
     r"\b(sport|pi[łl]k|mecz|liga|transfer|fifa|ekstraklasa|kibic|trener|bramk|"
@@ -137,31 +170,90 @@ def title_words(title):
     return set(re.sub(r"[^\w\s]", "", title.lower()).split())
 
 
-def deduplicate(conn, articles):
-    """Remove articles whose title is very similar to an earlier article within 2 hours.
+def tokens_from_blob(blob: str) -> set:
+    """Content words for similarity: lowercase, length ≥3, stopwords removed."""
+    words = re.findall(r"[\w]+|\d{4}", blob.lower())
+    out = set()
+    for w in words:
+        if len(w) < 3 and not (w.isdigit() and len(w) >= 4):
+            continue
+        if w in POLISH_STOPWORDS:
+            continue
+        out.add(w)
+    return out
 
+
+def content_tokens(article) -> set[str]:
+    blob = f"{article['title']} {(article.get('summary') or '')[:1400]}"
+    return tokens_from_blob(blob)
+
+
+def token_similarity(a: set, b: set) -> tuple:
+    """Return (Jaccard, Dice, |intersection|)."""
+    if not a or not b:
+        return 0.0, 0.0, 0
+    inter = len(a & b)
+    union = len(a | b)
+    j = inter / union if union else 0.0
+    d = (2 * inter / (len(a) + len(b))) if (a or b) else 0.0
+    return j, d, inter
+
+
+def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
+    dt = abs((article["sort_key"] - seen["sort_key"]).total_seconds())
+    if dt > window.total_seconds():
+        return False, ""
+
+    ca, cs = content_tokens(article), content_tokens(seen)
+    j, dice, n_inter = token_similarity(ca, cs)
+
+    tw_a, tw_s = title_words(article["title"]), title_words(seen["title"])
+    title_frac = (
+        len(tw_a & tw_s) / max(len(tw_a), len(tw_s)) if tw_a and tw_s else 0.0
+    )
+
+    if j >= DEDUP_JACCARD_MIN or dice >= DEDUP_DICE_MIN:
+        return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
+    if n_inter >= DEDUP_STRONG_INTERSECTION and j >= DEDUP_JACCARD_RELAXED:
+        return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
+    if title_frac >= 0.58:
+        return True, f"title={title_frac:.0%} overlap"
+
+    # Title-only content tokens: same story, different lead phrasing in RSS summary
+    tta = tokens_from_blob(article["title"])
+    tts = tokens_from_blob(seen["title"])
+    tj, td, tn = token_similarity(tta, tts)
+    if tj >= 0.48 or td >= 0.55:
+        return True, f"title-tokens j={tj:.2f}"
+
+    return False, ""
+
+
+def deduplicate(conn, articles):
+    """Skip articles that match an earlier one within DEDUP_WINDOW_HOURS (cross-outlet).
+
+    Uses title + RSS summary tokens (Jaccard / Dice), not headline identity alone.
     Dropped duplicates are marked seen so the same RSS id is not retried every run.
     """
+    window = timedelta(hours=DEDUP_WINDOW_HOURS)
     kept = []
     for article in articles:
-        words = title_words(article["title"])
         is_duplicate = False
+        detail = ""
         for seen in kept:
-            if abs((article["sort_key"] - seen["sort_key"]).total_seconds()) <= 7200:
-                seen_words = title_words(seen["title"])
-                if not words or not seen_words:
-                    continue
-                overlap = len(words & seen_words) / max(len(words), len(seen_words))
-                if overlap >= 0.6:
-                    is_duplicate = True
-                    log.info(
-                        f"Duplicate ({overlap:.0%} overlap): '{article['title'][:60]}' "
-                        f"~ '{seen['title'][:60]}'"
-                    )
-                    conn.execute(
-                        "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
-                    )
-                    break
+            dup, detail = _is_near_duplicate(article, seen, window)
+            if dup:
+                is_duplicate = True
+                log.info(
+                    "Near-duplicate (%s): '%s' ~ '%s'",
+                    detail,
+                    article["title"][:65],
+                    seen["title"][:65],
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
+                )
+                break
         if not is_duplicate:
             kept.append(article)
     conn.commit()
