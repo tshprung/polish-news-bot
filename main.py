@@ -35,6 +35,8 @@ SPORTS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+PAYWALLED_DOMAINS = {"pro.rp.pl", "wyborcza.pl"}
+
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
@@ -231,6 +233,12 @@ def summarize_in_hebrew(client, article):
     rss_text = article["title"]
     if article["summary"]:
         rss_text += ". " + article["summary"]
+
+    # Skip fetching for known paywalled domains
+    from urllib.parse import urlparse
+    domain = urlparse(article["link"]).netloc.lstrip("www.")
+    if domain in PAYWALLED_DOMAINS:
+        return None, f"paywalled domain ({domain})"
 
     # Always fetch the full article body
     body = fetch_article_body(article["link"])
