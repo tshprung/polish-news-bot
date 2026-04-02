@@ -219,24 +219,23 @@ def classify(client, text):
 
 
 def summarize_in_hebrew(client, article):
-    """Returns (hebrew_text, notify_admin).
+    """Returns (hebrew_text, skip_reason).
     hebrew_text is None if the article should be skipped.
-    notify_admin is True if admin should be alerted (insufficient content).
+    skip_reason is None on success, or a string describing why it was skipped.
     """
-    text = article["title"]
+    rss_text = article["title"]
     if article["summary"]:
-        text += ". " + article["summary"]
+        rss_text += ". " + article["summary"]
 
-    # Always fetch the full article body for best summarization quality
+    # Always fetch the full article body
     body = fetch_article_body(article["link"])
-    fetched_body = bool(body)
-    if body:
-        text = article["title"] + ". " + body
+    text = (article["title"] + ". " + body) if body else rss_text
+    body_available = bool(body)
 
     # Stage 1: classify with cheap model — only filters obvious non-Poland/sports
     decision = classify(client, text)
     if decision == "SKIP":
-        return None, False
+        return None, None  # silent skip, not Poland-related
 
     def call_stage2(t):
         return client.chat.completions.create(
@@ -251,25 +250,17 @@ def summarize_in_hebrew(client, article):
     # Stage 2: summarize with powerful model
     response = call_stage2(text)
     if response.choices[0].finish_reason == "length":
-        return None, True
+        return None, "response truncated"
     result = response.choices[0].message.content.strip()
 
-    # If INSUFFICIENT and we haven't fetched the full body yet, try fetching and retry once
-    if (result.upper().startswith("INSUF") or result.startswith("לא מספיק")) and not fetched_body:
-        body = fetch_article_body(article["link"])
-        if body:
-            text = article["title"] + ". " + body
-            response = call_stage2(text)
-            if response.choices[0].finish_reason == "length":
-                return None, True
-            result = response.choices[0].message.content.strip()
-
     if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
-        return None, False
+        return None, None
     if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
-        return None, True
+        if not body_available:
+            return None, "body not accessible (paywall or blocked)"
+        return None, "insufficient content even with full article"
     if len(result) < 15:
-        return None, True
+        return None, "response too short"
 
     # Allow Hebrew, Latin, digits, Polish diacritics (ą ć ę ł ń ó ś ź ż etc.), punctuation
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result).strip()
@@ -300,11 +291,11 @@ def send_to_telegram(message, chat_id=None):
     resp.raise_for_status()
 
 
-def notify_admin(article):
+def notify_admin(article, reason):
     if not ADMIN_TELEGRAM_ID:
         return
     msg = (
-        f"⚠️ Could not summarize article (insufficient content):\n"
+        f"⚠️ Skipped article ({reason}):\n"
         f"<b>{article['title']}</b>\n"
         f"{article['link']}"
     )
@@ -332,11 +323,11 @@ def main():
                 )
                 conn.commit()
                 continue
-            hebrew, should_notify = summarize_in_hebrew(client, article)
+            hebrew, skip_reason = summarize_in_hebrew(client, article)
             if hebrew is None:
-                if should_notify:
-                    log.info(f"Skipped (insufficient content): {article['title'][:70]}")
-                    notify_admin(article)
+                if skip_reason:
+                    log.info(f"Skipped ({skip_reason}): {article['title'][:70]}")
+                    notify_admin(article, skip_reason)
                 else:
                     log.info(f"Skipped (not Poland-related): {article['title'][:70]}")
                 conn.execute(
