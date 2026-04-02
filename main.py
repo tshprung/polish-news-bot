@@ -163,21 +163,32 @@ def fetch_article_body(url):
         return ""
 
 
+CLASSIFY_PROMPT = (
+    "You are a filter for a news channel about Poland.\n"
+    "All articles come from Polish news sources.\n\n"
+    "Reply with SKIP only if the article is clearly about:\n"
+    "- Foreign news with no connection to Poland\n"
+    "- Sports\n\n"
+    "Reply with GO for everything else — including Polish politics, crime, economy, society, "
+    "weather, accidents, and any story where Poland or Polish people are involved.\n"
+    "When in doubt, reply GO.\n\n"
+    "Reply with only one word: SKIP or GO."
+)
+
+
 def classify(client, text):
-    """Stage 1: cheap model decides SKIP / INSUFFICIENT / GO."""
+    """Stage 1: cheap model decides SKIP / GO."""
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        max_tokens=20,
+        max_tokens=5,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Article: {text[:2000]}\n\nReply with SKIP, INSUFFICIENT, or GO."},
+            {"role": "system", "content": CLASSIFY_PROMPT},
+            {"role": "user", "content": f"Article: {text[:500]}"},
         ],
     )
     result = response.choices[0].message.content.strip().upper()
     if result.startswith("SKIP") or "סקיפ" in result:
         return "SKIP"
-    if result.startswith("INSUF") or result.startswith("GO") is False and len(result) < 15:
-        return "INSUFFICIENT"
     return "GO"
 
 
@@ -196,12 +207,10 @@ def summarize_in_hebrew(client, article):
         if body:
             text = article["title"] + ". " + body
 
-    # Stage 1: classify with cheap model
+    # Stage 1: classify with cheap model — only filters obvious non-Poland/sports
     decision = classify(client, text)
     if decision == "SKIP":
         return None, False
-    if decision == "INSUFFICIENT":
-        return None, True
 
     # Stage 2: summarize with powerful model
     response = client.chat.completions.create(
