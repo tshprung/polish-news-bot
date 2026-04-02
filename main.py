@@ -172,18 +172,23 @@ def fetch_article_body(url):
         resp = requests.get(url, timeout=10, headers=headers)
         resp.raise_for_status()
         html = resp.text
-        # Try <article> block first, fall back to all <p> tags
+        # Try <article> block first; if it yields little content, fall back to full page
         article_match = re.search(r"<article[^>]*>(.*?)</article>", html, re.DOTALL)
-        source = article_match.group(1) if article_match else html
-        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
-        text = " ".join(re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40)
-        text = text.strip()
+        def extract_paragraphs(source):
+            paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
+            return " ".join(re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40)
+        text = ""
+        if article_match:
+            text = extract_paragraphs(article_match.group(1)).strip()
+        if len(text) < 300:
+            text = extract_paragraphs(html).strip()
         # Discard if the page looks like a paywall or login prompt
         paywall_signals = ["zaloguj się", "zarejestruj się", "prenumerata", "subskrypcja", "kup dostęp", "płatna treść"]
         if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
             log.warning(f"Paywall detected at {url}, ignoring fetched content")
             return ""
-        return text
+        log.info(f"Fetched {len(text)} chars from {url}")
+        return text.strip()
     except Exception as e:
         log.warning(f"Could not fetch article body from {url}: {e}")
         return ""
