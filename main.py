@@ -202,28 +202,43 @@ def summarize_in_hebrew(client, article):
         text += ". " + article["summary"]
 
     # If RSS gave us little content, fetch the full article body
+    fetched_body = False
     if len(text) < 200:
         body = fetch_article_body(article["link"])
         if body:
             text = article["title"] + ". " + body
+            fetched_body = True
 
     # Stage 1: classify with cheap model — only filters obvious non-Poland/sports
     decision = classify(client, text)
     if decision == "SKIP":
         return None, False
 
+    def call_stage2(t):
+        return client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=300,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Article: {t[:2000]}"},
+            ],
+        )
+
     # Stage 2: summarize with powerful model
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=300,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Article: {text[:2000]}"},
-        ],
-    )
+    response = call_stage2(text)
     if response.choices[0].finish_reason == "length":
         return None, True
     result = response.choices[0].message.content.strip()
+
+    # If INSUFFICIENT and we haven't fetched the full body yet, try fetching and retry once
+    if (result.upper().startswith("INSUF") or result.startswith("לא מספיק")) and not fetched_body:
+        body = fetch_article_body(article["link"])
+        if body:
+            text = article["title"] + ". " + body
+            response = call_stage2(text)
+            if response.choices[0].finish_reason == "length":
+                return None, True
+            result = response.choices[0].message.content.strip()
 
     if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
         return None, False
