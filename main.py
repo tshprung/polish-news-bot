@@ -21,6 +21,10 @@ FEEDS = [
     "https://www.rmf24.pl/fakty/feed",
     "https://wiadomosci.onet.pl/.feed",
     "https://www.polsatnews.pl/rss/wszystkie.xml",
+    "https://wyborcza.pl/pub/rss/najnowsze_wyborcza.xml",
+    "https://www.rp.pl/rss_main",
+    "https://wydarzenia.interia.pl/feed",
+    "https://wiadomosci.wp.pl/rss.xml",
 ]
 
 SPORTS_KEYWORDS = re.compile(
