@@ -43,10 +43,13 @@ DEDUP_DICE_MIN = 0.38
 DEDUP_STRONG_INTERSECTION = 5  # with Jaccard >= DEDUP_JACCARD_RELAXED
 DEDUP_JACCARD_RELAXED = 0.11
 # Same event, different headline (different politician quoted): high overlap on smaller set
-DEDUP_OVERLAP_MIN = 0.38  # |A∩B| / min(|A|, |B|)
-DEDUP_OVERLAP_MIN_TOKENS = 5
-DEDUP_OVERLAP_SET_MIN = 6  # min(|A|, |B|) must be at least this for overlap rule
+DEDUP_OVERLAP_MIN = 0.32  # |A∩B| / min(|A|, |B|)
+DEDUP_OVERLAP_MIN_TOKENS = 4
+DEDUP_OVERLAP_SET_MIN = 5  # min(|A|, |B|) must be at least this for overlap rule
 DEDUP_CONTENT_SUMMARY_CHARS = 2500  # more RSS text for cross-outlet matching
+
+# Two-letter tokens are usually noise; keep abbreviations that headline many EU/Poland wires.
+_DEDUP_SHORT_TOKENS_OK = frozenset({"ke", "tk", "ue", "lr"})
 
 _PL_FOLD = str.maketrans(
     "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
@@ -57,6 +60,13 @@ _PL_FOLD = str.maketrans(
 def _fold_pl(token: str) -> str:
     """Fold Polish diacritics so sędziów / sedziow count as overlap."""
     return unicodedata.normalize("NFC", token).translate(_PL_FOLD).lower()
+
+
+def _dedup_word_shape(wf: str) -> str:
+    """Merge Latin inflections for dedup only (Pfizer/pfizera, bruksela/brukseli)."""
+    if len(wf) >= 6 and wf.isascii() and wf.isalpha():
+        return wf[:5]
+    return wf
 
 
 POLISH_STOPWORDS = frozenset(
@@ -190,20 +200,46 @@ def get_new_articles(conn):
 def title_words(title):
     """Return a set of folded words from a title (diacritics normalized for dedup)."""
     words = re.findall(r"[\w]+", re.sub(r"[^\w\s]", " ", title.lower()))
-    return {w for w in (_fold_pl(x) for x in words) if len(w) > 0}
+    out = set()
+    for x in words:
+        wf = _fold_pl(x)
+        if not wf:
+            continue
+        wf = _dedup_word_shape(wf)
+        if len(wf) > 0:
+            out.add(wf)
+    return out
 
 
 def tokens_from_blob(blob: str) -> set:
     """Content words for similarity: folded, length ≥3, stopwords removed."""
-    words = re.findall(r"[\w]+|\d{4}", unicodedata.normalize("NFC", blob.lower()))
+    blob_n = unicodedata.normalize("NFC", blob.lower())
+    words = re.findall(r"[\w]+|\d{4}", blob_n)
     out = set()
     for w in words:
         wf = _fold_pl(w)
-        if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
+        if len(wf) < 2:
             continue
+        if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
+            if wf not in _DEDUP_SHORT_TOKENS_OK:
+                continue
         if wf in POLISH_STOPWORDS:
             continue
+        wf = _dedup_word_shape(wf)
+        if len(wf) < 2:
+            continue
+        if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
+            if wf not in _DEDUP_SHORT_TOKENS_OK:
+                continue
         out.add(wf)
+    # Standout counts in wires (e.g. 64 mln dawek) — 2–3 digits, not a calendar year
+    for m in re.finditer(r"(?<!\d)(\d{2,3})(?!\d)", blob_n):
+        n = int(m.group(1))
+        if n in (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30) and len(m.group(1)) == 2:
+            continue  # likely day-of-month in dates
+        if 1900 <= n <= 2099:
+            continue
+        out.add("#" + m.group(1))
     return out
 
 
@@ -266,7 +302,7 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     tta = tokens_from_blob(article["title"])
     tts = tokens_from_blob(seen["title"])
     tj, td, tn = token_similarity(tta, tts)
-    if tj >= 0.48 or td >= 0.55:
+    if tj >= 0.40 or td >= 0.48:
         return True, f"title-tokens j={tj:.2f}"
 
     return False, ""
