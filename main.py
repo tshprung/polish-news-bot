@@ -265,20 +265,20 @@ def summarize_in_hebrew(client, article):
     # Allow Hebrew, Latin, digits, Polish diacritics (ą ć ę ł ń ó ś ź ż etc.), punctuation
     result = re.sub(r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result).strip()
     if not result:
-        return None, True
+        return None, "sanitization left empty result"
     if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
-        return None, True
+        return None, "no Hebrew characters in result"
     # Must start with a Hebrew character — catches echoed Polish/Latin input
     if not re.match(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
-        return None, True
+        return None, "result starts with non-Hebrew (possible echoed input)"
 
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
     latin_re = re.compile(r"[A-Za-z]")
     for word in result.split():
         if hebrew_re.search(word) and latin_re.search(word):
-            return None, True
+            return None, f"mixed-script word detected: '{word}'"
 
-    return result, False
+    return result, None
 
 
 def send_to_telegram(message, chat_id=None):
