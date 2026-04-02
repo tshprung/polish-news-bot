@@ -40,13 +40,15 @@ FEEDS = [
 DEDUP_WINDOW_HOURS = 8
 DEDUP_JACCARD_MIN = 0.15
 DEDUP_DICE_MIN = 0.38
+DEDUP_DICE_RELAXED = 0.32  # with enough shared tokens; same beat, different wording
 DEDUP_STRONG_INTERSECTION = 5  # with Jaccard >= DEDUP_JACCARD_RELAXED
 DEDUP_JACCARD_RELAXED = 0.11
 # Same event, different headline (different politician quoted): high overlap on smaller set
-DEDUP_OVERLAP_MIN = 0.32  # |A∩B| / min(|A|, |B|)
+DEDUP_OVERLAP_MIN = 0.28  # |A∩B| / min(|A|, |B|)
 DEDUP_OVERLAP_MIN_TOKENS = 4
 DEDUP_OVERLAP_SET_MIN = 5  # min(|A|, |B|) must be at least this for overlap rule
-DEDUP_CONTENT_SUMMARY_CHARS = 2500  # more RSS text for cross-outlet matching
+DEDUP_OVERLAP_LOOSE = 0.26  # last-chance: same beat, very different phrasing
+DEDUP_CONTENT_SUMMARY_CHARS = 4000  # wires often only share facts deep in RSS body
 
 # Two-letter tokens are usually noise; keep abbreviations that headline many EU/Poland wires.
 _DEDUP_SHORT_TOKENS_OK = frozenset({"ke", "tk", "ue", "lr"})
@@ -63,8 +65,12 @@ def _fold_pl(token: str) -> str:
 
 
 def _dedup_word_shape(wf: str) -> str:
-    """Merge Latin inflections for dedup only (Pfizer/pfizera, bruksela/brukseli)."""
-    if len(wf) >= 6 and wf.isascii() and wf.isalpha():
+    """Merge inflections for dedup (Pfizer/pfizera, Wielichowska, Kłodzko/Kłodzku)."""
+    if not wf.isalpha():
+        return wf
+    if len(wf) >= 8:
+        return wf[:6]
+    if len(wf) >= 6:
         return wf[:5]
     return wf
 
@@ -285,6 +291,8 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
 
     if j >= DEDUP_JACCARD_MIN or dice >= DEDUP_DICE_MIN:
         return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
+    if dice >= DEDUP_DICE_RELAXED and n_inter >= 4 and mn >= 5:
+        return True, f"dice={dice:.2f} j={j:.2f} ({n_inter} shared, relaxed)"
     if n_inter >= DEDUP_STRONG_INTERSECTION and j >= DEDUP_JACCARD_RELAXED:
         return True, f"j={j:.2f} dice={dice:.2f} ({n_inter} shared tokens)"
     if (
@@ -295,6 +303,12 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
         return True, f"overlap={oc:.2f} j={j:.2f} ({n_inter} shared)"
     if oc >= 0.46 and n_inter >= 4 and mn >= 5:
         return True, f"overlap={oc:.2f} j={j:.2f} ({n_inter} shared, tight)"
+    if (
+        oc >= DEDUP_OVERLAP_LOOSE
+        and n_inter >= 4
+        and mn >= 4
+    ):
+        return True, f"overlap={oc:.2f} j={j:.2f} ({n_inter} shared, loose)"
     if title_frac >= 0.58:
         return True, f"title={title_frac:.0%} overlap"
 
