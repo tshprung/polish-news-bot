@@ -61,7 +61,9 @@ SYSTEM_PROMPT = (
     "CRITICAL RULES:\n"
     "- Output ONLY one of the three options. No explanations, no extra text.\n"
     "- SKIP and INSUFFICIENT must appear exactly as written (Latin characters, uppercase).\n"
-    "- NEVER hallucinate, infer, or complete missing details.\n\n"
+    "- NEVER hallucinate, infer, or complete missing details.\n"
+    "- Do NOT echo, repeat, or include any part of the input article in your output.\n"
+    "- If the headline alone states a clear, complete fact, summarize from the headline — do not return INSUFFICIENT just because the body is missing.\n\n"
     "HEBREW SUMMARY RULES:\n"
     "- Fluent, natural, journalistic Hebrew — not a literal translation.\n"
     "- Strictly factual: do not add, remove, or reinterpret information.\n"
@@ -274,6 +276,9 @@ def summarize_in_hebrew(client, article):
     if not result:
         return None, True
     if not re.search(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
+        return None, True
+    # Must start with a Hebrew character — catches echoed Polish/Latin input
+    if not re.match(r"[\u0590-\u05FF\uFB1D-\uFB4F]", result):
         return None, True
 
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
