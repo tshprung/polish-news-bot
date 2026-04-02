@@ -3,6 +3,7 @@ import sqlite3
 import requests
 from openai import OpenAI
 import html
+import json
 import time
 import os
 import re
@@ -167,8 +168,54 @@ def deduplicate(conn, articles):
     return kept
 
 
+def _article_body_from_jsonld(page_html: str) -> str:
+    """Pull articleBody from schema.org JSON-LD (used by Gazeta.pl and many CMSs)."""
+    for m in re.finditer(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        page_html,
+        re.DOTALL | re.IGNORECASE,
+    ):
+        raw = m.group(1).strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            candidates = data.get("@graph", [data])
+        elif isinstance(data, list):
+            candidates = data
+        else:
+            continue
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            t = item.get("@type")
+            if isinstance(t, list):
+                types = t
+            elif isinstance(t, str):
+                types = [t]
+            else:
+                types = []
+            if not any(x in ("NewsArticle", "Article") for x in types):
+                continue
+            body = item.get("articleBody")
+            if isinstance(body, str) and len(body.strip()) > 150:
+                return body.strip()
+    return ""
+
+
 def fetch_article_body(url):
     """Fetch full article text from URL. Returns plain text, stripped of HTML tags."""
+    paywall_signals = [
+        "zaloguj się",
+        "zarejestruj się",
+        "prenumerata",
+        "subskrypcja",
+        "kup dostęp",
+        "płatna treść",
+    ]
     try:
         headers = {
             "User-Agent": (
@@ -181,19 +228,42 @@ def fetch_article_body(url):
         }
         resp = requests.get(url, timeout=10, headers=headers)
         resp.raise_for_status()
-        html = resp.text
-        # Try <article> block first; if it yields little content, fall back to full page
-        article_match = re.search(r"<article[^>]*>(.*?)</article>", html, re.DOTALL)
+        page_html = resp.text
+
+        text = _article_body_from_jsonld(page_html)
+        if len(text) >= 200:
+            if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+                log.warning(f"Paywall detected at {url}, ignoring fetched content")
+                return ""
+            log.info(f"Fetched {len(text)} chars (JSON-LD) from {url}")
+            return text
+
+        # Strip scripts/styles so <p> regex cannot match inside JS bundles (Gazeta etc.).
+        stripped = re.sub(
+            r"<script\b[^>]*>.*?</script>", " ", page_html, flags=re.DOTALL | re.IGNORECASE
+        )
+        stripped = re.sub(
+            r"<style\b[^>]*>.*?</style>", " ", stripped, flags=re.DOTALL | re.IGNORECASE
+        )
+
         def extract_paragraphs(source):
             paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
-            return " ".join(re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40)
+            return " ".join(
+                re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40
+            )
+
+        article_match = re.search(r"<article[^>]*>(.*?)</article>", stripped, re.DOTALL)
+        if not article_match:
+            article_match = re.search(
+                r'<section[^>]*class="[^"]*\bart_content\b[^"]*"[^>]*>(.*?)</section>',
+                stripped,
+                re.DOTALL | re.IGNORECASE,
+            )
         text = ""
         if article_match:
             text = extract_paragraphs(article_match.group(1)).strip()
         if len(text) < 300:
-            text = extract_paragraphs(html).strip()
-        # Discard if the page looks like a paywall or login prompt
-        paywall_signals = ["zaloguj się", "zarejestruj się", "prenumerata", "subskrypcja", "kup dostęp", "płatna treść"]
+            text = extract_paragraphs(stripped).strip()
         if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
             log.warning(f"Paywall detected at {url}, ignoring fetched content")
             return ""
