@@ -279,9 +279,9 @@ def summarize_in_hebrew(client, article):
 
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
     latin_re = re.compile(r"[A-Za-z]")
-    for word in result.split():
-        if hebrew_re.search(word) and latin_re.search(word):
-            return None, f"mixed-script word detected: '{word}'"
+    for token in re.split(r"[\s\-]+", result):  # split on spaces and hyphens
+        if hebrew_re.search(token) and latin_re.search(token):
+            return None, f"mixed-script word detected: '{token}'"
 
     return result, None
 
