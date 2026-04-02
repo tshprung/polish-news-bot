@@ -21,7 +21,8 @@ FEEDS = [
     "https://www.rmf24.pl/fakty/feed",
     "https://wiadomosci.onet.pl/.feed",
     "https://www.polsatnews.pl/rss/wszystkie.xml",
-    "https://wyborcza.pl/pub/rss/najnowsze_wyborcza.xml",
+    # wyborcza.pl removed — paywalled, article body not accessible
+
     "https://www.rp.pl/rss_main",
     "https://wydarzenia.interia.pl/feed",
     "https://wiadomosci.wp.pl/rss.xml",
@@ -174,7 +175,13 @@ def fetch_article_body(url):
         source = article_match.group(1) if article_match else html
         paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
         text = " ".join(re.sub(r"<[^>]+>", "", p).strip() for p in paragraphs if len(p) > 40)
-        return text.strip()
+        text = text.strip()
+        # Discard if the page looks like a paywall or login prompt
+        paywall_signals = ["zaloguj się", "zarejestruj się", "prenumerata", "subskrypcja", "kup dostęp", "płatna treść"]
+        if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+            log.warning(f"Paywall detected at {url}, ignoring fetched content")
+            return ""
+        return text
     except Exception as e:
         log.warning(f"Could not fetch article body from {url}: {e}")
         return ""
