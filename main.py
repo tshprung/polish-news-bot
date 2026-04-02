@@ -23,7 +23,8 @@ FEEDS = [
     "https://www.polsatnews.pl/rss/wszystkie.xml",
     # wyborcza.pl removed — paywalled, article body not accessible
 
-    "https://www.rp.pl/rss_main",
+    # rp.pl removed — JS-rendered content, not accessible via static scraping
+
     "https://wydarzenia.interia.pl/feed",
     "https://wiadomosci.wp.pl/rss.xml",
 ]
@@ -35,7 +36,7 @@ SPORTS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-PAYWALLED_DOMAINS = {"pro.rp.pl", "wyborcza.pl"}
+PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
