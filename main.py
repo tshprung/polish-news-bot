@@ -298,6 +298,35 @@ def _article_body_from_jsonld(page_html: str) -> str:
     return ""
 
 
+def _article_body_from_dom(stripped_html: str) -> str:
+    """Sites like Onet (Astro) put copy in div.ods-a-body-text, not <p>; JSON-LD may omit articleBody."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return ""
+    soup = BeautifulSoup(stripped_html, "html.parser")
+    root = soup.select_one("[class*='ods-article-body']")
+    if root is None:
+        root = soup.find("article")
+    if root is None:
+        return ""
+    for sel in (
+        "ad-default",
+        "aside",
+        ".ods-m-bullet-list",
+        ".ods-o-authorship-bottom",
+        ".ods-c-share-buttons-wrapper",
+        ".ods-m-socials-stream",
+        ".ods-m-tts-player",
+        ".ods-o-authorship-top",
+    ):
+        for tag in root.select(sel):
+            tag.decompose()
+    block = root.get_text(separator="\n", strip=True)
+    lines = [ln for ln in (x.strip() for x in block.splitlines()) if len(ln) > 12]
+    return "\n".join(lines)
+
+
 def fetch_article_body(url):
     """Fetch full article text from URL. Returns plain text, stripped of HTML tags."""
     paywall_signals = [
@@ -337,6 +366,14 @@ def fetch_article_body(url):
         stripped = re.sub(
             r"<style\b[^>]*>.*?</style>", " ", stripped, flags=re.DOTALL | re.IGNORECASE
         )
+
+        text = _article_body_from_dom(stripped)
+        if len(text) >= 250:
+            if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+                log.warning(f"Paywall detected at {url}, ignoring fetched content")
+                return ""
+            log.info(f"Fetched {len(text)} chars (DOM) from {url}")
+            return text.strip()
 
         def extract_paragraphs(source):
             paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
