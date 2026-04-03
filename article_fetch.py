@@ -125,10 +125,19 @@ def _article_body_from_dom(stripped_html: str) -> str:
     best = primary
     if len(fallback) > len(best):
         best = fallback
+    # Prefer <p>-only extract when it looks like the full story (WP chrome in get_text).
+    # Onet/Politico often put most copy in divs: paragraph_body can be only pull-quotes vs huge primary.
+    _para_substantial = len(paragraph_body) >= max(
+        200, int(0.38 * max(len(primary), 1))
+    )
     if len(paragraph_body) >= 180:
         if len(paragraph_body) > len(best):
             best = paragraph_body
-        elif best is primary and len(primary) > len(paragraph_body) + 80:
+        elif (
+            best is primary
+            and len(primary) > len(paragraph_body) + 80
+            and _para_substantial
+        ):
             best = paragraph_body
     return best
 
