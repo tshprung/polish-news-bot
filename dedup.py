@@ -19,6 +19,7 @@ from config import (
     DEDUP_WINDOW_HOURS,
     POLISH_STOPWORDS,
     TOPIC_DEDUP_MIN_LEXICAL,
+    TOPIC_DEDUP_MIN_LEXICAL_WEATHER,
     _DEDUP_SHORT_TOKENS_OK,
     _TOPIC_DEDUP_TAGS,  # must match every "#…" token added below in tokens_from_blob
     fold_pl,
@@ -38,37 +39,6 @@ def _dedup_word_shape(wf: str) -> str:
 def _dedup_folded_blob(article: dict, limit: int = 3500) -> str:
     raw = f"{article['title']} {(article.get('summary') or '')}"
     return fold_pl(unicodedata.normalize("NFC", raw[:limit]))
-
-
-def _weather_beat_divergent(article: dict, seen: dict) -> bool:
-    ba = _dedup_folded_blob(article)
-    bb = _dedup_folded_blob(seen)
-    weather_hints = (
-        "pogod",
-        "temperatur",
-        "ochlodz",
-        "zimn",
-        "mroz",
-        "deszcz",
-        "wiatr",
-        "prognoz",
-        "opad",
-    )
-    if not any(h in ba for h in weather_hints) or not any(h in bb for h in weather_hints):
-        return False
-    storm_markers = (
-        "wichur",
-        "huragan",
-        "nawalnic",
-        "nawaln",
-        "90 km",
-        "90km",
-        "predkosc",
-        "porywy",
-    )
-    storm_a = any(x in ba for x in storm_markers)
-    storm_b = any(x in bb for x in storm_markers)
-    return storm_a != storm_b
 
 
 def title_words(title):
@@ -142,12 +112,19 @@ def tokens_from_blob(blob: str) -> set:
     ):
         out.add("#lodz_crime_factory")
 
-    if re.search(r"wielkanoc|po\s+wielkanoc|swiat\w*\s+wielk", bf) and re.search(
-        r"pogod|temperatur|burz|grzmot|deszcz|snieg|zimn|"
-        r"wyjatko|warunk|prognoz|mapy",
-        bf,
+    # IMGW / holiday-period / warning-style forecasts (many outlets, same synoptic beat).
+    _wx_phenom = (
+        r"pogod|prognoz|temperatur|burz|grzmot|deszcz|snieg|mroz|przymroz|"
+        r"zimn|ochlodz|wiatr|oblod|uwaga\s+meteorolog"
+    )
+    if re.search(_wx_phenom, bf) and (
+        re.search(r"imgw|instytut\s+meteorolog|meteorologiczn", bf)
+        or re.search(r"wielkanoc|po\s+wielkanoc|swiat\w*\s+wielk", bf)
+        or re.search(r"ostrze\w|alert\w", bf)
+        or re.search(r"warunk\w|mapy\s", bf)
+        or re.search(r"wichur|huragan|nawaln|90\s*km", bf)
     ):
-        out.add("#easter_weather")
+        out.add("#pl_weather_forecast")
 
     if re.search(r"\bnato\b", bf) and (
         re.search(r"kellog|kelog", bf)
@@ -199,15 +176,18 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     if dt > window.total_seconds():
         return False, ""
 
-    if _weather_beat_divergent(article, seen):
-        return False, ""
-
     ca, cs = content_tokens(article), content_tokens(seen)
     j, dice, n_inter = token_similarity(ca, cs)
     shared_topics = (ca & cs) & _TOPIC_DEDUP_TAGS
-    if shared_topics and _lexical_token_overlap(ca, cs) >= TOPIC_DEDUP_MIN_LEXICAL:
-        tag = ",".join(sorted(shared_topics))
-        return True, f"topic-tag {tag}"
+    if shared_topics:
+        min_lex = (
+            TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+            if "#pl_weather_forecast" in shared_topics
+            else TOPIC_DEDUP_MIN_LEXICAL
+        )
+        if _lexical_token_overlap(ca, cs) >= min_lex:
+            tag = ",".join(sorted(shared_topics))
+            return True, f"topic-tag {tag}"
 
     oc = _overlap_coefficient(ca, cs)
     mn = min(len(ca), len(cs))

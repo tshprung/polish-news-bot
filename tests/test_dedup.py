@@ -85,11 +85,30 @@ def test_tram_lodz_still_merges_with_topic_and_lexical():
 
 
 def test_weather_storm_vs_cold_not_duplicate():
+    """Different beats (Easter storms vs wind warning): same tag but no lexical overlap → keep both."""
     w = timedelta(hours=8)
     wx = _article("Grzmoty na Wielkanoc", "Warunki", "w1")
     storm = _article("Wichura nad Polską", "90 km/h wiatr", "w2")
     dup, _ = _is_near_duplicate(wx, storm, w)
     assert dup is False
+
+
+def test_weather_imgw_holiday_wires_merge():
+    w = timedelta(hours=8)
+    a = _article(
+        "IMGW ostrzega przed przymrozkami",
+        "Alerty dla województw temperatura spadnie",
+        "wx1",
+    )
+    b = _article(
+        "Burze na Wielkanoc",
+        "Warunki w weekend prognoza IMGW",
+        "wx2",
+    )
+    dup, detail = _is_near_duplicate(a, b, w)
+    assert dup is True
+    assert "topic-tag" in detail
+    assert "#pl_weather_forecast" in detail
 
 
 def test_cross_run_dedup_uses_snapshot():

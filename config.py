@@ -34,11 +34,13 @@ _TOPIC_DEDUP_TAGS = frozenset({
     "#tram_accident",
     "#komendant_speed",
     "#lodz_crime_factory",
-    "#easter_weather",
+    "#pl_weather_forecast",
     "#nato_us_poland",
 })
 # Shared topic tag alone is too loose; require this many overlapping non-tag tokens too.
 TOPIC_DEDUP_MIN_LEXICAL = 2
+# Synoptic / IMGW wires share vocabulary; allow lighter overlap so one beat does not flood the channel.
+TOPIC_DEDUP_MIN_LEXICAL_WEATHER = 1
 
 _PL_FOLD = str.maketrans(
     "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
