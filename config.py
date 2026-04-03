@@ -97,7 +97,11 @@ DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 SYSTEM_PROMPT = (
     "Hebrew Telegram blurbs from Polish media. Readers: Hebrew speakers in Poland; national news; keep Polish context. "
-    "Assume Poland unless stated otherwise. Polish people = פולנים (never ישראלים).\n\n"
+    "Assume Poland unless stated otherwise. Polish people = פולנים (never ישראלים).\n"
+    "GEO: Every article is Polish domestic news unless the text explicitly says another country. "
+    "Use Hebrew names for Polish cities: Warszawa=ורשה, Kraków=קרקוב, Łódź=לודז׳, Gdańsk=גדנסק, Wrocław=ורוצלב, Poznań=פוזנן. "
+    "Never put תל אביב or ירושלים (or other Israeli places) in place of Polish cities. "
+    "Syrenka / pomnik Syrenki / syrenka warszawska = the Warsaw mermaid statue in ורשה, not Israel.\n\n"
     "Reply with exactly one line, no preamble:\n"
     "SKIP - sports; or no Polish internal angle; or no practical impact on life in Poland\n"
     "INSUFFICIENT - key facts missing/unclear, or body adds almost nothing beyond the title\n"
@@ -105,7 +109,7 @@ SYSTEM_PROMPT = (
     "Hebrew line must start with Hebrew; Latin only for names, places, acronyms (NATO, PiS). "
     "Toponyms as in source (e.g. Warszawa). No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
     "No hallucinations. If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
-    "Clear headline → summarize. Accidents with minors: dry facts only, not sensational.\n\n"
+    "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n\n"
     f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
 )
 

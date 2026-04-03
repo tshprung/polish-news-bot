@@ -15,11 +15,26 @@ from config import (
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
     SYSTEM_PROMPT,
+    fold_pl,
 )
 
 log = logging.getLogger(__name__)
 
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
+
+
+def _source_suggests_warsaw_area_not_israel(polish_blob: str) -> bool:
+    """True if folded Polish text points to Warsaw/Syrenka without an Israel/Tel Aviv angle."""
+    f = fold_pl(polish_blob[:6000])
+    if not re.search(r"warszaw|syrenk|warszawsk", f, re.IGNORECASE):
+        return False
+    if re.search(r"izrael|tel\s*aviv|tel\s*awiw|jerozolim", f, re.IGNORECASE):
+        return False
+    return True
+
+
+def _hebrew_mentions_major_israeli_city(hebrew: str) -> bool:
+    return bool(re.search(r"תל\s*[-]?\s*אביב|ירושלים", hebrew))
 
 
 def classify(client: OpenAI, text: str):
@@ -145,6 +160,12 @@ def summarize_in_hebrew(
     word_count = len(result.split())
     if word_count > MAX_SUMMARY_WORDS_HARD:
         return None, f"summary too long ({word_count} words, max {MAX_SUMMARY_WORDS})"
+
+    if _source_suggests_warsaw_area_not_israel(text) and _hebrew_mentions_major_israeli_city(
+        result
+    ):
+        log.warning("GEO guard: Warsaw-area Polish source but Hebrew cited Tel Aviv/Jerusalem")
+        return None, "GEO mismatch (Warsaw/Syrenka story vs Israeli city in Hebrew; re-run)"
 
     return result, None
 
