@@ -90,17 +90,24 @@ def summarize_in_hebrew(
         "Use any concrete facts given. Short pieces OK: TV/radio = name guests, shows, times; "
         "else what/where/outcome. INSUFFICIENT only if the body adds almost nothing beyond the headline."
     )
+    strong_insuf_note = (
+        "The body is long and clearly contains reporting: names, titles, quotations, and/or attribution. "
+        "Examples: US ambassador in Poland, EU/Iran/NATO diplomacy—summarize factually who said what and on what topic. "
+        "Reply INSUFFICIENT only when there are no extractable facts beyond the headline."
+    )
     short_retry_note = (
         f"Output a real Hebrew sentence (not empty); max {_SUMMARY_CAP} words."
     )
 
     result = ""
-    used_insuf_retry = False
-    for attempt in range(2):
+    insuf_hint_tier = 0  # 0=none, 1=standard insufficient hint, 2=long-article / quote-heavy hint
+    for attempt in range(3):
         user_blob = f"Article: {text[:stage2_limit]}"
-        if attempt == 1 and used_insuf_retry:
+        if insuf_hint_tier == 1:
             user_blob = f"{user_blob}\n\n{insufficient_retry_note}"
-        elif attempt == 1 and len(result) > 0 and len(result) < 15:
+        elif insuf_hint_tier == 2:
+            user_blob = f"{user_blob}\n\n{strong_insuf_note}"
+        elif attempt >= 1 and len(result) > 0 and len(result) < 15:
             user_blob = f"{user_blob}\n\n{short_retry_note}"
 
         response = call_stage2(user_blob)
@@ -118,16 +125,20 @@ def summarize_in_hebrew(
         if is_insuf:
             if not body_available:
                 return None, "body not accessible (paywall or blocked)"
-            if body_available and not used_insuf_retry and attempt == 0:
-                used_insuf_retry = True
+            if insuf_hint_tier == 0:
+                insuf_hint_tier = 1
                 log.info("Stage 2 INSUFFICIENT — retry with hint (schedule/thin body)")
+                continue
+            if insuf_hint_tier == 1 and len(text) >= 1200:
+                insuf_hint_tier = 2
+                log.info("Stage 2 INSUFFICIENT — retry with long-body / diplomacy hint")
                 continue
             return None, "insufficient content even with full article"
 
         if len(result) >= 15:
             break
         log.warning(f"Stage 2 response too short (attempt {attempt + 1}): '{result}'")
-        if attempt >= 1:
+        if attempt >= 2:
             return None, "response too short after retry"
 
     if len(result) < 15:

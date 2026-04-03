@@ -110,6 +110,7 @@ SYSTEM_PROMPT = (
     "Hebrew line must start with Hebrew; Latin for personal names, Polish place names (as in source), acronyms (NATO, PiS). "
     "No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
     "No hallucinations. If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
+    "Diplomacy and foreign-policy wires (e.g. US ambassador in Poland, EU/Iran/NATO): if officials are named and quoted or paraphrased, summarize factually; not INSUFFICIENT. "
     "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n\n"
     f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
 )
