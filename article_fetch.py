@@ -7,6 +7,27 @@ import requests
 
 log = logging.getLogger(__name__)
 
+# requests uses ISO-8859-1 when HTML has no charset; Polish portals are usually UTF-8 → mojibake in resp.text.
+_BAD_DEFAULT_ENCODINGS = frozenset({"iso-8859-1", "windows-1252"})
+
+
+def _html_text(response: requests.Response) -> str:
+    """Decode HTML body with a plausible charset (avoids garbled Polish in resp.text)."""
+    raw = response.content
+    enc = (response.encoding or "").lower()
+    if enc and enc not in _BAD_DEFAULT_ENCODINGS:
+        try:
+            return raw.decode(response.encoding)
+        except (UnicodeDecodeError, LookupError, TypeError):
+            pass
+    apparent = getattr(response, "apparent_encoding", None) or "utf-8"
+    for candidate in (apparent, "utf-8", "cp1250"):
+        try:
+            return raw.decode(candidate)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
 
 def _article_body_from_jsonld(page_html: str) -> str:
     for m in re.finditer(
@@ -133,7 +154,7 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
         }
         resp = session.get(url, timeout=timeout, headers=headers)
         resp.raise_for_status()
-        page_html = resp.text
+        page_html = _html_text(resp)
 
         text = _article_body_from_jsonld(page_html)
         if len(text) >= 200:
