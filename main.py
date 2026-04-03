@@ -259,10 +259,14 @@ def title_words(title):
     words = re.findall(r"[\w]+", re.sub(r"[^\w\s]", " ", title.lower()))
     out = set()
     for x in words:
-        wf = _fold_pl(x)
-        if not wf:
+        folded = _fold_pl(x)
+        if not folded:
             continue
-        wf = _dedup_word_shape(wf)
+        if len(folded) >= 5 and folded.isalpha():
+            px = folded[:4]
+            if len(px) >= 3 and px not in POLISH_STOPWORDS:
+                out.add(px)
+        wf = _dedup_word_shape(folded)
         if len(wf) > 0:
             out.add(wf)
     return out
@@ -274,15 +278,20 @@ def tokens_from_blob(blob: str) -> set:
     words = re.findall(r"[\w]+|\d{4}", blob_n)
     out = set()
     for w in words:
-        wf = _fold_pl(w)
-        if len(wf) < 2:
+        folded = _fold_pl(w)
+        if len(folded) < 2:
             continue
-        if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
-            if wf not in _DEDUP_SHORT_TOKENS_OK:
+        if len(folded) < 3 and not (folded.isdigit() and len(folded) >= 4):
+            if folded not in _DEDUP_SHORT_TOKENS_OK:
                 continue
-        if wf in POLISH_STOPWORDS:
+        if folded in POLISH_STOPWORDS:
             continue
-        wf = _dedup_word_shape(wf)
+        # 4-char prefix links declensions (lodzi ↔ lodz, ranni ↔ rannych).
+        if len(folded) >= 5 and folded.isalpha():
+            px = folded[:4]
+            if len(px) >= 3 and px not in POLISH_STOPWORDS:
+                out.add(px)
+        wf = _dedup_word_shape(folded)
         if len(wf) < 2:
             continue
         if len(wf) < 3 and not (wf.isdigit() and len(wf) >= 4):
@@ -297,6 +306,14 @@ def tokens_from_blob(blob: str) -> set:
         if 1900 <= n <= 2099:
             continue
         out.add("#" + m.group(1))
+
+    # Same beat, different lemma: "wypadek tramwajowy" vs "wykolejenie tramwaju".
+    bf = _fold_pl(blob_n[:4000])
+    if re.search(r"tramwaj", bf) and re.search(
+        r"wykolej|wypadek|wypadku|zderzen|kolizj", bf
+    ):
+        out.add("#tram_accident")
+
     return out
 
 
