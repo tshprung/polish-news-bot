@@ -432,6 +432,16 @@ def _article_body_from_dom(stripped_html: str) -> str:
     lines = [ln for ln in (x.strip() for x in block.splitlines()) if len(ln) > 12]
     primary = "\n".join(lines)
 
+    # Real copy is usually in <p>; full article get_text also pulls dates, share lines, side teasers (WP.pl).
+    paragraph_chunks = []
+    for p in scope.find_all("p"):
+        if p.find_parent("aside"):
+            continue
+        chunk = p.get_text(separator=" ", strip=True)
+        if len(chunk) >= 20:
+            paragraph_chunks.append(chunk)
+    paragraph_body = "\n".join(paragraph_chunks)
+
     # Onet podcast/premium: copy is often only in div.ods-a-body-text; also avoids piano/UI drowning the start.
     body_chunks = []
     for div in scope.select("div.ods-a-body-text"):
@@ -440,7 +450,15 @@ def _article_body_from_dom(stripped_html: str) -> str:
             body_chunks.append(chunk)
     fallback = "\n".join(body_chunks)
 
-    return fallback if len(fallback) > len(primary) else primary
+    best = primary
+    if len(fallback) > len(best):
+        best = fallback
+    if len(paragraph_body) >= 180:
+        if len(paragraph_body) > len(best):
+            best = paragraph_body
+        elif best is primary and len(primary) > len(paragraph_body) + 80:
+            best = paragraph_body
+    return best
 
 
 def fetch_article_body(url):
@@ -586,9 +604,10 @@ def summarize_in_hebrew(client, article):
         )
 
     insufficient_retry_note = (
-        "Note: The article text above is long enough that it likely contains facts. "
-        "If it states what happened, where, and the main outcome (even briefly), "
-        "write a factual Hebrew summary without sensational wording. "
+        "Note: Summarize any concrete facts in the text, even if the piece is short. "
+        "Broadcast schedules (who is a guest on which Polish TV or radio show, program titles, times) "
+        "are enough — write a short factual Hebrew summary of the guests. "
+        "If the article states what happened elsewhere, where, and the main outcome, summarize that. "
         "Reply INSUFFICIENT only if the body adds almost nothing beyond the headline."
     )
     short_retry_note = (
@@ -620,9 +639,9 @@ def summarize_in_hebrew(client, article):
         if is_insuf:
             if not body_available:
                 return None, "body not accessible (paywall or blocked)"
-            if body_available and len(text) > 550 and not used_insuf_retry and attempt == 0:
+            if body_available and not used_insuf_retry and attempt == 0:
                 used_insuf_retry = True
-                log.info("Stage 2 INSUFFICIENT with long body — retry with hint")
+                log.info("Stage 2 INSUFFICIENT — retry with hint (schedule/thin body)")
                 continue
             return None, "insufficient content even with full article"
 
@@ -647,6 +666,13 @@ def summarize_in_hebrew(client, article):
     result = result[m_heb.start() :].strip()
     if len(result) < 15:
         return None, "Hebrew too short after removing leading non-Hebrew (likely echoed input)"
+
+    # Model/RTL glitches: stray Hebrew letter stuck to a Polish placename (e.g. בŁódź).
+    _hebrew_glue = r"\u0590-\u05FF\uFB1D-\uFB4F"
+    _latin_glue = r"A-Za-z\u00C0-\u024F"
+    result = re.sub(rf"[{_hebrew_glue}]+(?=[{_latin_glue}])", "", result)
+    result = re.sub(rf"(?<=[{_latin_glue}])[{_hebrew_glue}]+", "", result)
+    result = result.strip()
 
     hebrew_re = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
     latin_re = re.compile(r"[A-Za-z]")
