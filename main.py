@@ -180,41 +180,20 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
+# Byte-stable at runtime (same string every request) — helps OpenAI prompt caching if enabled.
+_SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 SYSTEM_PROMPT = (
-    "You are a Hebrew news editor for a Telegram channel.\n\n"
-    "AUDIENCE\n"
-    "- Hebrew speakers who live in Poland; they follow Polish national news.\n"
-    "- Summarize in Hebrew so they grasp the story quickly; keep Polish context where needed.\n\n"
-    "CONTEXT\n"
-    "- Articles are from Polish media.\n"
-    "- Assume Poland unless stated otherwise.\n"
-    "- Polish people = פולנים (never ישראלים).\n\n"
-    "TASK\n"
-    "Return exactly one:\n"
-    "1. SKIP — sports / not Polish internal affairs / no impact on life in Poland\n"
-    "2. INSUFFICIENT — missing or unclear key facts\n"
-    "3. Hebrew summary — one or two short sentences, "
-    f"≤{MAX_SUMMARY_WORDS} words total\n\n"
-    "RULES\n"
-    "- Output only one option (no explanations, no preamble in Polish or English).\n"
-    "- First significant output for a Hebrew summary must be Hebrew text "
-    "(Latin only inside the sentence for names, places, acronyms).\n"
-    "- SKIP / INSUFFICIENT must match exactly.\n"
-    "- INSUFFICIENT only when the text adds almost no usable facts beyond the title.\n"
-    "- Short wires and brief reports: if place, event, and outcome are stated, summarize.\n"
-    "- Interviews/podcasts: you may summarize who said what and on which topic, factually.\n"
-    "- Accidents involving minors: state facts dryly, no graphic or sensational detail.\n"
-    "- No hallucinations or assumptions.\n"
-    "- Do not repeat or quote the article; paraphrase.\n"
-    "- If the headline is clear → summarize.\n\n"
-    "HEBREW\n"
-    "- Natural, fluent, factual.\n"
-    "- Keep Polish place names (e.g. Warszawa).\n"
-    "- Keep names/orgs in Latin (e.g. NATO, PiS).\n"
-    "- No mixed scripts within a single word.\n"
-    "- Use standard Hebrew words only.\n\n"
-    "OUTPUT\n"
-    f"SKIP / INSUFFICIENT / ≤{MAX_SUMMARY_WORDS}-word Hebrew summary"
+    "Hebrew Telegram blurbs from Polish media. Readers: Hebrew speakers in Poland; national news; keep Polish context. "
+    "Assume Poland unless stated otherwise. Polish people = פולנים (never ישראלים).\n\n"
+    "Reply with exactly one line, no preamble:\n"
+    "SKIP - sports; or no Polish internal angle; or no practical impact on life in Poland\n"
+    "INSUFFICIENT - key facts missing/unclear, or body adds almost nothing beyond the title\n"
+    f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
+    "Hebrew line must start with Hebrew; Latin only for names, places, acronyms (NATO, PiS). "
+    "Toponyms as in source (e.g. Warszawa). No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
+    "No hallucinations. If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
+    "Clear headline → summarize. Accidents with minors: dry facts only, not sensational.\n\n"
+    f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
 )
 
 
@@ -665,15 +644,10 @@ def fetch_article_body(url):
 
 
 CLASSIFY_PROMPT = (
-    "You are a filter for a news channel about Poland.\n"
-    "All articles come from Polish news sources.\n\n"
-    "Reply with SKIP only if the article is clearly about:\n"
-    "- Foreign news with no connection to Poland\n"
-    "- Sports\n\n"
-    "Reply with GO for everything else — including Polish politics, crime, economy, society, "
-    "weather, accidents, and any story where Poland or Polish people are involved.\n"
-    "When in doubt, reply GO.\n\n"
-    "Reply with only one word: SKIP or GO."
+    "Filter for a Poland-focused channel; feed is already Polish outlets.\n"
+    "SKIP only: foreign story with zero Poland tie, or sports. "
+    "GO for politics, crime, economy, society, weather, accidents, or any Poland/Poles angle; if unsure, GO.\n"
+    "One word: SKIP or GO."
 )
 
 
@@ -731,15 +705,11 @@ def summarize_in_hebrew(client, article):
         )
 
     insufficient_retry_note = (
-        "Note: Summarize any concrete facts in the text, even if the piece is short. "
-        "Broadcast schedules (who is a guest on which Polish TV or radio show, program titles, times) "
-        "are enough — write a short factual Hebrew summary of the guests. "
-        "If the article states what happened elsewhere, where, and the main outcome, summarize that. "
-        "Reply INSUFFICIENT only if the body adds almost nothing beyond the headline."
+        "Use any concrete facts given. Short pieces OK: TV/radio = name guests, shows, times; "
+        "else what/where/outcome. INSUFFICIENT only if the body adds almost nothing beyond the headline."
     )
     short_retry_note = (
-        "Note: You must output a Hebrew summary sentence (not empty, not only punctuation). "
-        f"Max {MAX_SUMMARY_WORDS} words."
+        f"Output a real Hebrew sentence (not empty); max {_SUMMARY_CAP} words."
     )
 
     result = ""
