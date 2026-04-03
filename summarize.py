@@ -88,11 +88,13 @@ def summarize_in_hebrew(
 
     insufficient_retry_note = (
         "Use any concrete facts given. Short pieces OK: TV/radio = name guests, shows, times; "
-        "else what/where/outcome. INSUFFICIENT only if the body adds almost nothing beyond the headline."
+        "else what/where/outcome; interviews and official wires = who + what they said or decided. "
+        "INSUFFICIENT only if the body adds almost nothing beyond the headline (no names, agencies, dates, numbers, decisions)."
     )
     strong_insuf_note = (
         "The body is long and clearly contains reporting: names, titles, quotations, and/or attribution. "
-        "Examples: US ambassador in Poland, EU/Iran/NATO diplomacy—summarize factually who said what and on what topic. "
+        "Examples: US ambassador in Poland, EU/Iran/NATO diplomacy; regional RDOŚ/environmental rules; "
+        "local incidents with services/responders—summarize factually who said/did what and on what topic. "
         "Reply INSUFFICIENT only when there are no extractable facts beyond the headline."
     )
     short_retry_note = (
