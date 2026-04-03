@@ -65,14 +65,65 @@ def _fold_pl(token: str) -> str:
 
 
 def _dedup_word_shape(wf: str) -> str:
-    """Merge inflections for dedup (Pfizer/pfizera, Wielichowska, Kłodzko/Kłodzku)."""
+    """Merge inflections for dedup (Pfizer/pfizera, zawiesz/zawieszony, Kłodzko/Kłodzku)."""
     if not wf.isalpha():
         return wf
-    if len(wf) >= 8:
-        return wf[:6]
+    # Single 5-char stem for 6+ avoids 7-letter vs 8+ getting different slice lengths
+    # (e.g. zawiesz vs zawieszony were zawie vs zawies and never matched).
     if len(wf) >= 6:
         return wf[:5]
     return wf
+
+
+def _dedup_folded_blob(article: dict, limit: int = 3500) -> str:
+    raw = f"{article['title']} {(article.get('summary') or '')}"
+    return _fold_pl(unicodedata.normalize("NFC", raw[:limit]))
+
+
+def _weather_beat_divergent(article: dict, seen: dict) -> bool:
+    """Same RSS window can carry Friday cold + Monday storm; do not merge those."""
+    ba = _dedup_folded_blob(article)
+    bb = _dedup_folded_blob(seen)
+    weather_hints = (
+        "pogod",
+        "temperatur",
+        "ochlodz",
+        "zimn",
+        "mroz",
+        "deszcz",
+        "wiatr",
+        "prognoz",
+        "opad",
+    )
+    if not any(h in ba for h in weather_hints) or not any(h in bb for h in weather_hints):
+        return False
+    storm_a = any(
+        x in ba
+        for x in (
+            "wichur",
+            "huragan",
+            "nawalnic",
+            "nawaln",
+            "90 km",
+            "90km",
+            "predkosc",
+            "porywy",
+        )
+    )
+    storm_b = any(
+        x in bb
+        for x in (
+            "wichur",
+            "huragan",
+            "nawalnic",
+            "nawaln",
+            "90 km",
+            "90km",
+            "predkosc",
+            "porywy",
+        )
+    )
+    return storm_a != storm_b
 
 
 POLISH_STOPWORDS = frozenset(
@@ -277,6 +328,9 @@ def _overlap_coefficient(a: set, b: set) -> float:
 def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     dt = abs((article["sort_key"] - seen["sort_key"]).total_seconds())
     if dt > window.total_seconds():
+        return False, ""
+
+    if _weather_beat_divergent(article, seen):
         return False, ""
 
     ca, cs = content_tokens(article), content_tokens(seen)
