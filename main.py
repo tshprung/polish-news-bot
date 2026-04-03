@@ -53,6 +53,15 @@ DEDUP_CONTENT_SUMMARY_CHARS = 4000  # wires often only share facts deep in RSS b
 # Two-letter tokens are usually noise; keep abbreviations that headline many EU/Poland wires.
 _DEDUP_SHORT_TOKENS_OK = frozenset({"ke", "tk", "ue", "lr"})
 
+# tokens_from_blob() adds these only when conservative substring ANDs match.
+_TOPIC_DEDUP_TAGS = frozenset({
+    "#tram_accident",
+    "#komendant_speed",
+    "#lodz_crime_factory",
+    "#easter_weather",
+    "#nato_us_poland",
+})
+
 _PL_FOLD = str.maketrans(
     "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
     "acelnoszzacelnoszz",
@@ -307,12 +316,54 @@ def tokens_from_blob(blob: str) -> set:
             continue
         out.add("#" + m.group(1))
 
-    # Same beat, different lemma: "wypadek tramwajowy" vs "wykolejenie tramwaju".
+    # Folded slice for cross-outlet "same beat" hints (hand-picked, conservative ANDs).
     bf = _fold_pl(blob_n[:4000])
+
+    # Same beat, different lemma: "wypadek tramwajowy" vs "wykolejenie tramwaju".
     if re.search(r"tramwaj", bf) and re.search(
         r"wykolej|wypadek|wypadku|zderzen|kolizj", bf
     ):
         out.add("#tram_accident")
+
+    # Komendant caught speeding (different ledes: heavy foot vs stopped by subordinates).
+    if re.search(r"komendant", bf) and re.search(r"policj", bf):
+        if re.search(
+            r"przemys|kiszk|zatrzyman|podwladn|predkos|km/h|ponad\s+100|"
+            r"\b100\b|\b113\b|ciezk\w*\s+nog",
+            bf,
+        ):
+            out.add("#komendant_speed")
+
+    # Łódź: Gillette / ex-boss shooting, arrest, charges (different crime wording).
+    if re.search(r"lodz|lodzk|lodzkiej|\blodzi\b", bf) and re.search(
+        r"gillette|strzal|strzel|zabic|zaboj|morder|areszt|"
+        r"fabryc|byleg\w*\s+szef|uslyszal\s+zarzut",
+        bf,
+    ):
+        out.add("#lodz_crime_factory")
+
+    # Easter / post-Easter forecast thread (thunder vs cold snap — still one holiday-weather arc).
+    if re.search(r"wielkanoc|po\s+wielkanoc|swiat\w*\s+wielk", bf) and re.search(
+        r"pogod|temperatur|burz|grzmot|deszcz|snieg|zimn|"
+        r"wyjatko|warunk|prognoz|mapy",
+        bf,
+    ):
+        out.add("#easter_weather")
+
+    # NATO + US envoy / alternative alliance / Trump circle (Kellogg, Rubio, “tchórz” hit).
+    if re.search(r"\bnato\b", bf) and (
+        re.search(r"kellog|kelog", bf)
+        or (
+            re.search(r"alternatyw", bf)
+            and re.search(r"sojusz|general|genera", bf)
+        )
+        or (
+            re.search(r"tchorz|czlowiek\s+trumpa", bf)
+            and re.search(r"polsk|polce|polsce", bf)
+        )
+        or (re.search(r"rubio", bf) and re.search(r"polsk|polce|polsce", bf))
+    ):
+        out.add("#nato_us_poland")
 
     return out
 
@@ -351,6 +402,11 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
         return False, ""
 
     ca, cs = content_tokens(article), content_tokens(seen)
+    shared_topics = (ca & cs) & _TOPIC_DEDUP_TAGS
+    if shared_topics:
+        tag = ",".join(sorted(shared_topics))
+        return True, f"topic-tag {tag}"
+
     j, dice, n_inter = token_similarity(ca, cs)
     oc = _overlap_coefficient(ca, cs)
     mn = min(len(ca), len(cs))
