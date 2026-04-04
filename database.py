@@ -30,6 +30,11 @@ def init_db():
         "sort_epoch INTEGER NOT NULL)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup_recent_epoch ON dedup_recent(sort_epoch)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS weekly_announce_sent ("
+        "iso_week TEXT PRIMARY KEY, "
+        "sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
     conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-7 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
     conn.execute("DELETE FROM dedup_recent WHERE sort_epoch < ?", (cutoff,))

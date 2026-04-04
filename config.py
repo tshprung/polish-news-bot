@@ -96,6 +96,18 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
+# Weekly community message (cron in Asia/Jerusalem or set WEEKLY_ANNOUNCE_TZ); Sunday 18:00 default.
+WEEKLY_ANNOUNCE_ENABLED = os.environ.get("WEEKLY_ANNOUNCE_ENABLED", "1") == "1"
+WEEKLY_ANNOUNCE_TZ = os.environ.get("WEEKLY_ANNOUNCE_TZ", "Asia/Jerusalem")
+WEEKLY_ANNOUNCE_WEEKDAY = int(os.environ.get("WEEKLY_ANNOUNCE_WEEKDAY", "6"))
+WEEKLY_ANNOUNCE_HOUR = int(os.environ.get("WEEKLY_ANNOUNCE_HOUR", "18"))
+WEEKLY_ANNOUNCE_SUPPORT_EMAIL = os.environ.get(
+    "WEEKLY_ANNOUNCE_SUPPORT_EMAIL", "tshprung@gmail.com"
+)
+WEEKLY_ANNOUNCE_KOFI_URL = os.environ.get(
+    "WEEKLY_ANNOUNCE_KOFI_URL", "https://ko-fi.com/talshprung"
+)
+
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 SYSTEM_PROMPT = (
     "Hebrew Telegram blurbs from Polish media. Readers: Hebrew speakers in Poland; national news; keep Polish context. "
