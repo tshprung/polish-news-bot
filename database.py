@@ -8,7 +8,13 @@ from zoneinfo import ZoneInfo
 
 import feedparser
 
-from config import DB_PATH, FEEDS
+from config import (
+    DB_PATH,
+    FEEDS,
+    RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL,
+    RATE_LIMIT_KEY_TK_JUDGE_OATH,
+    RATE_LIMIT_KEY_WEATHER,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,11 +41,80 @@ def init_db():
         "iso_week TEXT PRIMARY KEY, "
         "sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS weather_post_rate ("
+        "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
+        "last_sent_epoch INTEGER NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS channel_rate_limits ("
+        "rate_key TEXT PRIMARY KEY, "
+        "last_sent_epoch INTEGER NOT NULL)"
+    )
+    _migrate_weather_rate_to_channel_limits(conn)
     conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-7 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
     conn.execute("DELETE FROM dedup_recent WHERE sort_epoch < ?", (cutoff,))
     conn.commit()
     return conn
+
+
+def _migrate_weather_rate_to_channel_limits(conn: sqlite3.Connection) -> None:
+    """Copy legacy weather_post_rate row into channel_rate_limits once."""
+    try:
+        row = conn.execute(
+            "SELECT last_sent_epoch FROM weather_post_rate WHERE singleton = 1"
+        ).fetchone()
+        if row:
+            conn.execute(
+                "INSERT OR IGNORE INTO channel_rate_limits (rate_key, last_sent_epoch) "
+                "VALUES (?, ?)",
+                (RATE_LIMIT_KEY_WEATHER, row[0]),
+            )
+    except sqlite3.OperationalError:
+        pass
+
+
+def rate_limit_allowed(conn: sqlite3.Connection, rate_key: str, interval_sec: int) -> bool:
+    row = conn.execute(
+        "SELECT last_sent_epoch FROM channel_rate_limits WHERE rate_key = ?", (rate_key,)
+    ).fetchone()
+    if row is None:
+        return True
+    return time.time() - row[0] >= interval_sec
+
+
+def record_rate_limit_hit(conn: sqlite3.Connection, rate_key: str) -> None:
+    conn.execute(
+        "INSERT INTO channel_rate_limits (rate_key, last_sent_epoch) VALUES (?, ?) "
+        "ON CONFLICT(rate_key) DO UPDATE SET last_sent_epoch = excluded.last_sent_epoch",
+        (rate_key, int(time.time())),
+    )
+
+
+def weather_post_allowed(conn: sqlite3.Connection, interval_sec: int) -> bool:
+    """False if a Polish weather / IMGW-style post was sent within the last interval_sec."""
+    return rate_limit_allowed(conn, RATE_LIMIT_KEY_WEATHER, interval_sec)
+
+
+def record_weather_post(conn: sqlite3.Connection) -> None:
+    record_rate_limit_hit(conn, RATE_LIMIT_KEY_WEATHER)
+
+
+def fuel_tourism_post_allowed(conn: sqlite3.Connection, interval_sec: int) -> bool:
+    return rate_limit_allowed(conn, RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL, interval_sec)
+
+
+def record_fuel_tourism_post(conn: sqlite3.Connection) -> None:
+    record_rate_limit_hit(conn, RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL)
+
+
+def tk_judge_oath_post_allowed(conn: sqlite3.Connection, interval_sec: int) -> bool:
+    return rate_limit_allowed(conn, RATE_LIMIT_KEY_TK_JUDGE_OATH, interval_sec)
+
+
+def record_tk_judge_oath_post(conn: sqlite3.Connection) -> None:
+    record_rate_limit_hit(conn, RATE_LIMIT_KEY_TK_JUDGE_OATH)
 
 
 def get_new_articles(conn):

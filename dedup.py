@@ -117,8 +117,19 @@ def tokens_from_blob(blob: str) -> set:
         r"pogod|prognoz|temperatur|burz|grzmot|deszcz|snieg|mroz|przymroz|"
         r"zimn|ochlodz|wiatr|oblod|uwaga\s+meteorolog"
     )
-    if re.search(_wx_phenom, bf) and (
-        re.search(r"imgw|instytut\s+meteorolog|meteorologiczn", bf)
+    _imgw_or_inst = re.search(
+        r"imgw|instytut\s+meteorolog|meteorologiczn", bf
+    )
+    # Hebrew service copy often omits Polish wx vocab; keep IMGW + local warning cues aligned.
+    _he_wx = re.search(
+        r"אזהר|סער|סופות|מזג\s*אוויר|המטאורולוגי|המכון\s+המטאורולוגי|"
+        r"התקררות|קמ[\"״\u05f4]ש|שירות\s+המזג|בצפון\b|חג\s+הפסחא",
+        bf,
+    )
+    if _imgw_or_inst and _he_wx:
+        out.add("#pl_weather_forecast")
+    elif re.search(_wx_phenom, bf) and (
+        _imgw_or_inst
         or re.search(r"wielkanoc|po\s+wielkanoc|swiat\w*\s+wielk", bf)
         or re.search(r"ostrze\w|alert\w", bf)
         or re.search(r"warunk\w|mapy\s", bf)
@@ -140,12 +151,64 @@ def tokens_from_blob(blob: str) -> set:
     ):
         out.add("#nato_us_poland")
 
+    # Baltic coast whale / large cetacean stranding (same beat, different Hebrew taxonomic wording → low raw Jaccard).
+    _baltic_whale_loc = (
+        r"(?:ostsee|wismar|\bpoel\b|timmendorf|timmendorfer|usedom|"
+        r"greifswald|stralsund|rügen|rugen|mecklen|vorpommer|"
+        r"bałtyk|baltyk|baltyku|plaza\s+baltyku)"
+    )
+    _whale_terms = (
+        r"(?:\bwal\b|wale\b|wieloryb|wieloryba|"
+        r"לוויתן|whales?|orca|dolphin|delfin|"
+        r"cachalot|potwal|sei\s*wal|fin\s*wal)"
+    )
+    if re.search(_whale_terms, bf) and re.search(_baltic_whale_loc, bf):
+        out.add("#baltic_whale_stranding")
+    elif re.search(r"(?:טימי|timmy)", bf) and re.search(_baltic_whale_loc, bf):
+        out.add("#baltic_whale_stranding")
+
+    # Katherina Reiche (CDU) fuel-price / Tempolimit row (HE phrasing splits בנזין vs תחנות דלק vs DE Sprit).
+    _reiche_named = r"(?:reiche|רייכה|katherina)"
+    _reiche_pol = r"(?:\bcdu\b|wirtschaftsminister(?:in)?|שר(ת)?\s+הכלכלה)"
+    _reiche_fuel = (
+        r"(?:tankrabatt|tank\s*rabat|\bsprit\b|spritfrust|kraftstoff|benzin|tempolimit|tempo[\s-]*limit|"
+        r"בנזין|דלק|תחנות\s+הדלק|מהירות|kraftstoffprei|hohe\s+kraftstoff|הקלות\s+מס)"
+    )
+    if (
+        re.search(_reiche_named, bf)
+        and re.search(_reiche_pol, bf)
+        and re.search(_reiche_fuel, bf)
+    ):
+        out.add("#de_reiche_fuel_policy")
+
+    # Constitutional Tribunal (TK): president / Nawrocki judge oath wave — PL vs HE wording + slugs differ a lot.
+    _tk_court = (
+        r"trybunal\s+konstyt|trybunal\w*\s+konstyt|konstytucyjn.{0,16}trybunal|"
+        r"sedzi\w*.{0,40}\btk\b|\btk\b.{0,10}sedzi\w*|"
+        r"בית\s+המשפט\s+החוקתי|בית\s+משפט\s+חוקתי"
+    )
+    _tk_oath = (
+        r"(?:przysi|zaprzy|zloz|"
+        r"שבוע|שבועה|השביע|שופטים|מינוי|מינויים|ששה\s+שופטים|שניים\s+מתוך)"
+    )
+    _tk_exec = (
+        r"(?:nawrocki|prezydent.{0,12}(?:rp|polsk)|prezydent\s+polsk|"
+        r"נשיא\s+פולין|נבוארוקי|נברוקי)"
+    )
+    if (
+        re.search(_tk_court, bf)
+        and re.search(_tk_oath, bf)
+        and re.search(_tk_exec, bf)
+    ):
+        out.add("#pl_tk_judge_oath_row")
+
     return out
 
 
 def content_tokens(article):
     blob = (
-        f"{article['title']} {(article.get('summary') or '')[:DEDUP_CONTENT_SUMMARY_CHARS]}"
+        f"{article['title']} {(article.get('summary') or '')[:DEDUP_CONTENT_SUMMARY_CHARS]} "
+        f"{(article.get('link') or '')}"
     )
     return tokens_from_blob(blob)
 
@@ -180,11 +243,17 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     j, dice, n_inter = token_similarity(ca, cs)
     shared_topics = (ca & cs) & _TOPIC_DEDUP_TAGS
     if shared_topics:
-        min_lex = (
-            TOPIC_DEDUP_MIN_LEXICAL_WEATHER
-            if "#pl_weather_forecast" in shared_topics
-            else TOPIC_DEDUP_MIN_LEXICAL
-        )
+        min_lex = TOPIC_DEDUP_MIN_LEXICAL
+        if "#pl_weather_forecast" in shared_topics:
+            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+        elif "#baltic_whale_stranding" in shared_topics:
+            # DE "wal" vs HE "לוויתן" do not share a token; Wismar/Poel alone should tie the beat.
+            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+        elif "#de_reiche_fuel_policy" in shared_topics:
+            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+        elif "#pl_tk_judge_oath_row" in shared_topics:
+            # PL headlines vs HE wires often share zero folded tokens; tag triple-gate is tight enough.
+            min_lex = 0
         if _lexical_token_overlap(ca, cs) >= min_lex:
             tag = ",".join(sorted(shared_topics))
             return True, f"topic-tag {tag}"
@@ -259,6 +328,58 @@ def record_sent_snapshot(conn: sqlite3.Connection, article: dict):
         "VALUES (?, ?, ?, ?)",
         (article["id"], article["title"], summary, sk),
     )
+
+
+def article_is_pl_weather_forecast_beat(article: dict) -> bool:
+    """True if title/summary match the #pl_weather_forecast cluster (IMGW / holiday warnings)."""
+    blob = f"{article.get('title', '')} {(article.get('summary') or '')}"
+    return "#pl_weather_forecast" in tokens_from_blob(blob)
+
+
+def article_is_pl_tk_judge_oath_beat(article: dict) -> bool:
+    """President / Nawrocki + TK judge oath instalment — high-volume multi-outlet beat."""
+    return "#pl_tk_judge_oath_row" in content_tokens(article)
+
+
+def article_is_de_pl_fuel_tourism_beat(article: dict) -> bool:
+    """
+    German motorists refuelling in Poland (border / VAT / “fuel tourism”) — many near-identical wires.
+    Uses title + RSS summary only (PL, DE, or Hebrew phrasing).
+    """
+    raw = f"{article.get('title', '')} {(article.get('summary') or '')}"
+    bf = fold_pl(unicodedata.normalize("NFC", raw.lower()))
+    deutsch_motors = re.search(
+        r"(?:"
+        r"turystyk\w*\s+paliw|paliw\w*\s+turyst|fuel\s+tourism|תיירות\s+דלק|"
+        r"kierowc\w*.{0,48}niemiec|niemieck.{0,40}(?:stacj|paliw|tank|kolejk|kolej)|"
+        r"z\s+niemiec.{0,48}(?:pols|polsk|paliw|granic|stacj)|"
+        r"niemc\w*.{0,32}(?:tank|tanku|stacj|paliw)|"
+        r"נהגים\s+גרמנים|גרמנים.{0,56}דלק|תושבי\s+גרמניה.{0,48}(?:פולין|גבול)"
+        r")",
+        bf,
+        re.I,
+    )
+    if not deutsch_motors:
+        return False
+    poland_anchor = re.search(
+        r"(?:"
+        r"\bpolsk|polce|\bw\s+polsce|przygraniczn|lubieszyn|szczecin|"
+        r"polsko\s*-\s*niemieck|granica.{0,36}(?:pols|niemc)|"
+        r"קו\s+הגבול|בפולין|ובפולין|פולין"
+        r")",
+        bf,
+        re.I,
+    )
+    fuel_price = re.search(
+        r"(?:"
+        r"paliw\w*|benzyn|diesel|ceny\s+paliw|stacj\w*\s*paliw|"
+        r"obniz|obniż|znizk|zniż|vat|mieś|podatk|taniej|"
+        r"דלק|מחיר|מעמ|מע\"מ|הנמוך|הפחת"
+        r")",
+        bf,
+        re.I,
+    )
+    return bool(poland_anchor and fuel_price)
 
 
 def deduplicate(conn: sqlite3.Connection, articles: list) -> list:

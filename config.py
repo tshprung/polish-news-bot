@@ -28,6 +28,18 @@ DEDUP_OVERLAP_SET_MIN = 5
 DEDUP_OVERLAP_LOOSE = 0.26
 DEDUP_CONTENT_SUMMARY_CHARS = 4000
 
+# Channel rate limits: post at most once per interval (UTC epoch), per topic key below.
+WEATHER_POST_MIN_INTERVAL_SEC = int(os.environ.get("WEATHER_POST_MIN_INTERVAL_SEC", str(24 * 3600)))
+FUEL_TOURISM_POST_MIN_INTERVAL_SEC = int(
+    os.environ.get("FUEL_TOURISM_POST_MIN_INTERVAL_SEC", str(24 * 3600))
+)
+TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC = int(
+    os.environ.get("TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC", str(24 * 3600))
+)
+RATE_LIMIT_KEY_WEATHER = "weather_pl_imgw"
+RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL = "fuel_tourism_de_pl_border"
+RATE_LIMIT_KEY_TK_JUDGE_OATH = "pl_tk_judge_oath_row"
+
 _DEDUP_SHORT_TOKENS_OK = frozenset({"ke", "tk", "ue", "lr"})
 
 _TOPIC_DEDUP_TAGS = frozenset({
@@ -36,6 +48,9 @@ _TOPIC_DEDUP_TAGS = frozenset({
     "#lodz_crime_factory",
     "#pl_weather_forecast",
     "#nato_us_poland",
+    "#baltic_whale_stranding",
+    "#de_reiche_fuel_policy",
+    "#pl_tk_judge_oath_row",
 })
 # Shared topic tag alone is too loose; require this many overlapping non-tag tokens too.
 TOPIC_DEDUP_MIN_LEXICAL = 2
@@ -86,6 +101,302 @@ SPORTS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Lifestyle listicles, coupon/shopping wire copy, and obvious advertorial markers (any language in feeds).
+_COMMERCIAL_CLICKBAIT = re.compile(
+    r"(?i)"
+    r"(?:"
+    # "10 Tipps…", "5 ways to save…" — small leading number + consumer/advice cluster in the same title
+    r"^\d{1,2}\s*[\.\):\-–]?\s*[^\n]{0,180}?(?:"
+    r"tipps?|tips?|tricks?|hacks?|life\s*hack|porad(?:y|nik|niku)?\s*.{0,20}zakup|"
+    r"sposob(?:ów|y)\s|"
+    r"rad\s*[,;\s]\s*jak\b|"
+    r"\brad\b|"
+    r"sparen|spartipp\w*|einkaufs?|shopping|shoppen|kaufgutschein|gutschein\w*|"
+    r"oszczędz(?:ać|aj|anie|ając)|taniej\s+zakup|zakup\w{0,15}(?:oszczęd|taniej)|"
+    r"rabat(?:y|ów)?|promocj\w*|wyprzedaż|outlet|kupon(?:y|ów)?|coupon|black\s+friday|cyber\s+monday|"
+    r"ways\s+to\s+save|how\s+to\s+save|save\s+money|money[- ]sav|"
+    r"astuces?\s|économis|economis|consejos?\s|ahorrar|"
+    r"clever\s+sparen|smart\s+shop"
+    r")"
+    r"|"
+    # German consumer-advice hook ("wie Sie … sparen/einkaufen")
+    r"\bwie\s+sie\b[^\n]{0,120}(?:sparen|einkauf|kaufen|shoppen|geld)"
+    r"|"
+    # Standalone advertorial / sponsored labels
+    r"\b(?:"
+    r"sponsored|advertorial|paid\s+partnership|native\s+ad|"
+    r"reklama|partnerem\s+(?:jest|serwisu|wirtualnej)|"
+    r"artykuł\s+sponsor|treści\s+komercyjn|werbung"
+    r")\b"
+    r"|"
+    # Classic engagement-bait openers (usually not hard news)
+    r"^(?:you\s+won'?t\s+believe|this\s+(?:one\s+)?weird\s+trick|one\s+weird\s+trick)\b"
+    r")",
+)
+
+
+def should_skip_commercial_clickbait_title(title: str) -> bool:
+    """True for shopping/savings listicles, coupon copy, and similar non-news headlines."""
+    t = (title or "").strip()
+    if not t:
+        return False
+    return bool(_COMMERCIAL_CLICKBAIT.search(t))
+
+
+# DIE ZEIT Jahrgang index (year hub), not a single article; RSS may link here by mistake.
+# Must not match paths like /2026-04/... (date slug under /news/ etc.).
+_ZEIT_JAHRGANG_INDEX = re.compile(
+    r"^https?://(?:www\.)?zeit\.de/2026(?:/|$|\?)", re.I
+)
+
+
+def is_zeit_jahrgang_index_url(url: str | None) -> bool:
+    """True for zeit.de/2026 archive hub URLs only."""
+    if not url or not isinstance(url, str):
+        return False
+    return bool(_ZEIT_JAHRGANG_INDEX.match(url.strip()))
+
+
+def zeit_jahrgang_index_skip_reason() -> str:
+    return "rss teaser: ZEIT year hub (zeit.de/2026)"
+
+
+# Admin DM noise: main.py skips Telegram notify when skip_reason starts with any of these prefixes.
+SKIP_NOTIFY_EXEMPT_PREFIXES = (
+    "rss teaser:",
+    "pan-eu guide:",
+)
+
+
+def skip_admin_notify_for_reason(reason: str | None) -> bool:
+    if not reason:
+        return False
+    r = reason.lower()
+    return any(r.startswith(p) for p in SKIP_NOTIFY_EXEMPT_PREFIXES)
+
+# Interview / lifestyle teasers that name a person and invite a click but state no event, figure, or decision.
+_RSS_TEASER_SOFT_PROFILE = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"im\s+interview|im\s+gespräch|gespräch\s+mit|"
+    r"w\s+wywiadzie|wywiad\s+z|rozmowa\s+z|"
+    r"speaks\s+about|talks\s+about|reflects\s+on|looks\s+back|sums?\s+up|"
+    r"offers?\s+(?:tips|advice|rat|ratschläge)|healthy\s+living|life\s+tips|lebensstil|wellness|"
+    r"erklärt(?:e)?,?\s*warum|spricht\s+über|gibt\s+(?:tipps|ratschläge)|"
+    r"(?:fasse|fassen|fasst)\s+zusammen|zusammenfassend|blickt\s+zurück|"
+    r"discusses\s+(?:improvements|treatment|therapy|the\s+fight)|"
+    r"(?:significant|bedeutend|wesentliche)\s+(?:improvements|fortschritte|verbesserungen)|"
+    r"(?:improvements|fortschritte|verbesserungen)\s+(?:in|bei|im|an)\s+(?:der\s+|die\s+)?(?:treatment|therapy|behandlung|therapie)|"
+    r"מסכם|מסביר\s+מדוע|מציע\s+עצות|מדבר\s+על|בשיחה\s+עם|שנות\s+עבודה|ניסיונו\b|"
+    r"שיפורים\s+משמעותיים|עצות\s+לחיים|"
+    r"explains\s+why|years?\s+of\s+(?:work|practice|experience)|"
+    r"\bjahren?\s+(?:berufserfahrung|praxis|erfahrung)\b"
+    r"|^(?:interview|wywiad|portrait|porträt|gespräch)\b"
+    r")",
+)
+
+_RSS_TEASER_HARD_NEWS = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"\d+(?:[.,]\d{3})+\b|"
+    r"\d+\s*%|\d+\s*proz\.?\b|"
+    r"[€$]|\beur\b|\busd\b|\bpln\b|\bzł\b|złot|million|millionen|miliard|mio\.|mrd\.|"
+    r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b|"
+    r"\b(?:[3-9]\d{2,}|[1-9]\d{4,})\b|"
+    r"\b\d+\s*(?:osób|rannych|zabitych|ofiar|ludzi|dzieci|kart|punktów)\b|"
+    r"\b(?:zginę|zabito|zabił|areszt|wyrok|skazan|uchwal|podpis\w{0,24}ustaw|"
+    r"wypad|wybuch|eksploz|strajk|ewaku|kolej.{0,24}wypad|"
+    r"killed|injured|arrested|sentenced|verurteil|urteil|tote|verletzte|festnahme|"
+    r"מעצר|הרוג|הרוגים|פצוע|פצועים|אחוז\s|נפגעים)"
+    r"|"
+    r"(?:\u201e|„|«|\u201c)(?:[^\n]{18,}?)(?:\u201c|”|“|»|\"|\u201d)"
+    r")",
+)
+
+
+def should_skip_information_poor_rss_teaser(title: str, summary: str) -> bool:
+    """
+    True when title + RSS summary look like profile/interview fluff: reflective language,
+    tips/lifestyle hooks, but no dateline-style facts (counts, %, money, verdicts, quotes with
+    substance, etc.). Skipping avoids spend on fetch + LLM when the teaser is inherently empty.
+    """
+    t = (title or "").strip()
+    s = (summary or "").strip()
+    combined = f"{t}\n{s}".strip()
+    if len(combined) < 88:
+        return False
+    if _RSS_TEASER_HARD_NEWS.search(combined):
+        return False
+    return bool(_RSS_TEASER_SOFT_PROFILE.search(combined))
+
+
+def rss_teaser_skip_reason() -> str:
+    return "rss teaser: no extractable facts"
+
+
+# Essay / podcast backstory (anthem, symbols, “history of…”): no vote, law, or dated incident in the teaser.
+_EVERGREEN_CULTURE_TEASER = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"(?:הממלכה\s+הגרמנית|חילוקי\s+דעות).{0,240}המנון\s+ה?לאומי.{0,140}"
+    r"(?:נבחנת|היסטור|מחלוק|סביב\s+קסמי|לאחר\s+איחוד)|"
+    r"המנון\s+ה?לאומי.{0,200}(?:היסטור|מחלוק|חילוקי|נבחנת|סביב\s+קסמי|לאחר\s+איחוד)|"
+    r"(?:nationalhymne|deutschlandlied|lied\s+der\s+deutschen).{0,140}"
+    r"(?:geschicht|kontrovers|streit|podcast|hintergrund|debatte)|"
+    r"hymn\w*.{0,100}(?:history|controvers|podcast)"
+    r")",
+)
+_NEWS_DECISION_IN_TEASER = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"bundestag|bundesregierung|beschloss|verabschiedet|neues\s+gesetz|urteil|urtei|"
+    r"anklag|ermittlung|verbot|abstimmung|referendum|referend|"
+    r"החליט|אושר ב|חקיקה|פסק דין|הכרעת דין|כתב אישום|מעצרים"
+    r")",
+)
+
+
+def should_skip_evergreen_culture_teaser(
+    title: str, summary: str, link: str | None = None,
+) -> bool:
+    """True for national-symbol / history-podcast teasers with no concrete news decision in the excerpt."""
+    combined = f"{(title or '').strip()}\n{(summary or '').strip()}\n{(link or '').strip()}".strip()
+    if len(combined) < 70:
+        return False
+    if _NEWS_DECISION_IN_TEASER.search(combined):
+        return False
+    if _EVERGREEN_CULTURE_TEASER.search(combined):
+        return True
+    path = (link or "").lower()
+    if re.search(r"(?i)(?:geschichte|/wissen/).{0,50}podcast|podcast.{0,40}geschichte", path):
+        if re.search(
+            r"(?i)nationalhymne|deutschlandlied|hymn|lied\s+der|המנון\s+ה?לאומי",
+            combined,
+        ):
+            return True
+    return False
+
+
+def evergreen_culture_skip_reason() -> str:
+    return "rss teaser: evergreen culture piece (no news hook)"
+
+
+def should_skip_entertainment_politician_chat_teaser(
+    title: str, summary: str, link: str | None = None,
+) -> bool:
+    """
+    Celebrity / Unterhaltung talk shows that only list a politician as guest (BILD MayWay, etc.)
+    with no policy outcome in the teaser.
+    """
+    u = (link or "").lower()
+    if "bild.de" not in u:
+        return False
+    if "/unterhaltung/" not in u and "mayway" not in u:
+        return False
+
+    combined = f"{(title or '').strip()}\n{(summary or '').strip()}".strip()
+    if len(combined) < 36:
+        return False
+    if _NEWS_DECISION_IN_TEASER.search(combined):
+        return False
+
+    if re.search(
+        r"(?is)תוכנית.{0,90}(?:bild|בילד).{0,110}אירחה|(?:bild|בילד).{0,70}תוכנית.{0,90}אירחה",
+        combined,
+    ):
+        return True
+    if re.search(
+        r"(?is)אירחה.{0,130}(?:בונדסטאג|בבונדסטאג|יו\"ר\s+סיעת|bundestag|cducsu)",
+        combined,
+    ):
+        return True
+    if re.search(r"mayway|zu\s+gast|talkshow|star-?talk", u) and re.search(
+        r"(?is)(?:spahn|merz|bundestag|בונדסטאג|אירחה|תוכנית|fraktion)",
+        combined,
+    ):
+        return True
+    return False
+
+
+def entertainment_chat_skip_reason() -> str:
+    return "rss teaser: entertainment TV guest spot (no policy facts)"
+
+
+# EU-wide regulatory / property explainer with “what owners should do” — skip if teaser never ties to PL or DE.
+_PAN_EU_WHOLE_SCOPE = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"בכל האיחוד האירופי|במדינות\s+האיחוד|"
+    r"in\s+der\s+gesamten\s+(?:EU|Europäischen\s+Union)|"
+    r"in\s+allen\s+EU[\s-]?(?:Staaten|Mitglied|Ländern?)?|"
+    r"EU[\s-]weit|eu[\s-]weit|"
+    r"g(?:anse|esamte)?\s+Europäischen\s+Union|"
+    r"across\s+the\s+(?:EU|European\s+Union)|throughout\s+the\s+EU|EU-wide|"
+    r"w[e]?\s+całej\s+UE|w[e]?\s+całej\s+Unii\s+Europejskiej|na\s+terenie\s+całej\s+UE|"
+    r"całej\s+Unii(?:\s+Europejskiej)?"
+    r")",
+)
+
+_PROPERTY_ENERGY_OWNER_TOPIC = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"נכסים|נדל[\"״\u05f4]ן|שווי\s+נכס|דירוג|תעוד(?:ות)?\s+אנרגיה|בעלים\s+עשויים|"
+    r"Immobilien(?:eigentümer)?|\bEigentümer\w*|Energieausweis|Gebäudeenergie|"
+    r"new\s+energy\s+certificate|energy\s+performance|EPC\s+certificate|"
+    r"real\s+estate|property\s+(?:owners|values|ratings)|home\s*owners|"
+    r"nieruchomości|certyfikat(?:ów)?\s+energetyczn|świadectw\w*\s+energetyczn"
+    r")",
+)
+
+_EXPLAINER_OR_ACTION_GUIDE = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"מסביר\s+כיצד|מסביר(?:ים)?\s+מה|(?:^|\s)WELT\s+מסביר|"
+    r"erklärt(?:,\s*)?(?:wie|was)|so\s+(?:reagieren|handeln)\s+Sie|"
+    r"wissen\s+sollten|wissen\s+müssen|jetzt\s+wissen|handeln\s+sollten|eigentuemer\w*.{0,24}wissen|"
+    r"immobilien\w*.{0,32}(?:wissen|tun)\s+sollten|"
+    r"what\s+.{0,40}need\s+to\s+know|how\s+to\s+(?:act|respond)|"
+    r"wyjaśnia,?\s*co|powinni\s+wiedzieć|trzeba\s+wiedzieć"
+    r")",
+)
+
+_COUNTRY_HOOK_POLAND_OR_GERMANY = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"פולין|פולנים|בפולין|פולני|"
+    r"Polska|Polsce|polski|polskiej|polskich|polscy|polską|polskim|polsk\w+|Sejmu|Warszaw|Krakow|Kraków|Wrocław|Poznań|Katowic|Gdańsk|"
+    r"גרמניה|בגרמניה|גרמנים|"
+    r"Deutschland|deutsche[rn]?|deutsch\w*|\bBRD\b|Bundes\w+|Berlin|München|"
+    r"Hamburg|Frankfurt|Köln|NRW|Bayern|niemieck|Niemc\w+"
+    r")",
+)
+
+
+def should_skip_pan_eu_generic_property_guide(title: str, summary: str) -> bool:
+    """
+    Pan-EU regulatory or property stories framed for generic “owners” plus an outlet explainer,
+    with no Poland or Germany hook in title/summary — typical syndicated consumer desk filler.
+    """
+    t = (title or "").strip()
+    s = (summary or "").strip()
+    combined = f"{t}\n{s}".strip()
+    if len(combined) < 72:
+        return False
+    if not _PAN_EU_WHOLE_SCOPE.search(combined):
+        return False
+    if not _PROPERTY_ENERGY_OWNER_TOPIC.search(combined):
+        return False
+    if not _EXPLAINER_OR_ACTION_GUIDE.search(combined):
+        return False
+    if _COUNTRY_HOOK_POLAND_OR_GERMANY.search(combined):
+        return False
+    return True
+
+
+def pan_eu_property_guide_skip_reason() -> str:
+    return "pan-eu guide: EU-wide explainer without PL/DE hook in teaser"
+
+
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
 MAX_SUMMARY_WORDS = 40
@@ -125,6 +436,22 @@ SYSTEM_PROMPT = (
     "great-power/US politics (e.g. Trump and NATO, US senators of both parties warning the White House) where "
     "only American actors are named and the text does not state Polish institutions, Polish officials, or a concrete Polish stake. "
     "A Polish outlet republishing Reuters/AP is still SKIP if the facts are US-only with no Poland hook.\n"
+    "SKIP - purely German domestic law, government, or Bundeswehr (e.g. travel/residency rules for German men, "
+    "internal military recruitment targets) when the excerpt does not tie the story to Poland, Poles abroad in PL terms, "
+    "Polish institutions reacting, or a concrete Polish stake—Polish media republishing the wire is not enough for GO.\n"
+    "SKIP - profile or interview setup that in the excerpt only introduces someone’s career arc, reflections, or generic "
+    "themes (e.g. treatment ‘improvements’, healthy-living tips) without a datable event, statistic, binding decision, "
+    "or a quoted concrete claim you could relay.\n"
+    "SKIP - pan-EU regulatory or property-desk explainers (energy certificates, generic ‘what owners should do’) where "
+    "the excerpt never ties the story to Poland or Germany—only a bloc-wide consumer frame.\n"
+    "SKIP - generic EU/Brussels cybersecurity or IT-hygiene briefings (EU worried about hacks targeting politicians EU-wide, "
+    "staff told to prefer Signal over WhatsApp, EU Commission websites under investigation) when the excerpt does not name "
+    "Poland, Polish officials, Polish parties or agencies, or a concrete Poland-specific victim, investigation, or policy "
+    "stake—a Polish outlet syndicating euro/Brussels wire (e.g. Politico) is still SKIP without a PL hook.\n"
+    "SKIP - evergreen culture / symbolic history (e.g. national anthem rows, ‘history of the hymn’, podcast backstory) "
+    "when there is no current decision, vote, law, investigation, or dated incident—only commentary on past controversies.\n"
+    "SKIP - entertainment / Unterhaltung chat (e.g. BILD MayWay) whose teaser is only ‘show X hosted politician Y’ "
+    "with no bill, vote, scandal fact, or policy outcome stated.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
@@ -137,6 +464,13 @@ SYSTEM_PROMPT = (
     "No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
     "Vocabulary: use real Modern Hebrew words only—never invent pseudo-Hebrew that looks like a calque of Polish "
     '(e.g. Polish „zbiory"/„zbiór" = gathering/harvest → say איסוף or ליקוט, not nonsense like ״זבירות״). '
+    "German names: read carefully—do not substitute look-alike cities (e.g. Koblenz is not München/Munich). "
+    "German *Schleuse* in rivers/canals = a navigation lock: say תא נעילה or סכר נעילה (never meaningless strings like "
+    "שעשוע connected to נעילה; *Moselschleuse* = lock on the Moselle—use Hebrew תא נעילה + Latin Mosel/Koblenz as in the source). "
+    "If the article is German wire (dpa, ZEIT, etc.), keep German place names in Latin where Hebrew would be ambiguous.\n"
+    "Polish **MSWiA** = *Ministerstwo Spraw Wewnętrznych i Administracji* (interior + public administration): say "
+    "**משרד הפנים והמינהל** in Hebrew, or keep **MSWiA** in Latin after a short Hebrew gloss—**never** output **פקולטה** "
+    "(that word means a university faculty; it is a wrong gloss for MSWiA).\n"
     "If there is no short standard term, use a plain periphrasis (e.g. חילזון היין / איסוף חילזונים). "
     "No hallucinations. If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
     "Diplomacy and foreign policy: summarize when Polish or EU-with-clear-PL actors appear, or when Polish government/opposition "
@@ -151,7 +485,12 @@ CLASSIFY_PROMPT = (
     "Filter for a Poland-focused channel; the feed is Polish outlets but includes global wires.\n"
     "SKIP if: (1) sports; OR (2) story is mostly US domestic US politics / US Congress / both US parties on Trump or NATO, "
     "and the excerpt does NOT mention Polish officials, Polish institutions, or a concrete consequence for Poland; OR "
-    "(3) other foreign items with no Poland/Poles/Polish policy angle.\n"
+    "(3) other foreign items with no Poland/Poles/Polish policy angle; OR "
+    "(4) purely German domestic administration or military (Bundesregierung, Bundeswehr obligations, internal residency/travel "
+    "rules for people in Germany only) with no Polish actor, Polish border, bilateral PL-DE angle, or explicit impact on Poland "
+    "in the excerpt—having a Polish outlet in the feed changes nothing; OR "
+    "(5) generic EU-institutional cybersecurity or digital-hygiene stories (bloc-wide politician targeting, EU staff app advice, "
+    "EU Commission site incidents) with no Polish official, Polish institution, or Poland-specific incident or consequence in the excerpt.\n"
     "GO if: events in Poland, Polish actors, EU/NATO stories where Poland's role, border, government position, or domestic impact is in the text, "
     "or crime/economy/weather/accidents tied to PL.\n"
     "Rule of thumb: if the only named politicians are American and the topic is generic transatlantic debate without Poland—SKIP (do not default to GO).\n"

@@ -16,7 +16,17 @@ from config import (
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
     SYSTEM_PROMPT,
+    entertainment_chat_skip_reason,
+    evergreen_culture_skip_reason,
     fold_pl,
+    is_zeit_jahrgang_index_url,
+    pan_eu_property_guide_skip_reason,
+    rss_teaser_skip_reason,
+    should_skip_entertainment_politician_chat_teaser,
+    should_skip_evergreen_culture_teaser,
+    should_skip_information_poor_rss_teaser,
+    should_skip_pan_eu_generic_property_guide,
+    zeit_jahrgang_index_skip_reason,
 )
 
 log = logging.getLogger(__name__)
@@ -92,6 +102,25 @@ def summarize_in_hebrew(
     rss_text = article["title"]
     if article["summary"]:
         rss_text += ". " + article["summary"]
+
+    if should_skip_information_poor_rss_teaser(article["title"], article["summary"]):
+        return None, rss_teaser_skip_reason()
+
+    if should_skip_evergreen_culture_teaser(
+        article["title"], article["summary"], article.get("link"),
+    ):
+        return None, evergreen_culture_skip_reason()
+
+    if should_skip_entertainment_politician_chat_teaser(
+        article["title"], article["summary"], article.get("link"),
+    ):
+        return None, entertainment_chat_skip_reason()
+
+    if should_skip_pan_eu_generic_property_guide(article["title"], article["summary"]):
+        return None, pan_eu_property_guide_skip_reason()
+
+    if is_zeit_jahrgang_index_url(article.get("link")):
+        return None, zeit_jahrgang_index_skip_reason()
 
     domain = urlparse(article["link"]).netloc.lstrip("www.")
     if domain in PAYWALLED_DOMAINS:
