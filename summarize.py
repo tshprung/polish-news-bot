@@ -1,4 +1,5 @@
 """OpenAI: classify + Hebrew summary."""
+import html
 import logging
 import re
 from urllib.parse import urlparse
@@ -23,6 +24,14 @@ log = logging.getLogger(__name__)
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 
 _HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
+_SANITIZE_HB_LINE = re.compile(
+    r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]"
+)
+
+
+def _sanitize_hebrew_summary_line(result: str) -> str:
+    """Decode HTML entities before stripping chars, or &#34; becomes garbage \"34;\"."""
+    return _SANITIZE_HB_LINE.sub("", html.unescape(result)).strip()
 
 _LEADING_LABEL_PATTERNS = (
     r"^עברית\s*:\s*",
@@ -170,9 +179,7 @@ def summarize_in_hebrew(
 
     result = strip_leading_summary_labels(result)
 
-    result = re.sub(
-        r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result
-    ).strip()
+    result = _sanitize_hebrew_summary_line(result)
     if not result:
         return None, "sanitization left empty result"
 
@@ -200,9 +207,7 @@ def summarize_in_hebrew(
         if len(result) < 15:
             return None, "no Hebrew characters in result"
         result = strip_leading_summary_labels(result)
-        result = re.sub(
-            r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result
-        ).strip()
+        result = _sanitize_hebrew_summary_line(result)
         if not result:
             return None, "sanitization left empty result"
         if not _HEBREW_CHAR_RE.search(result):
