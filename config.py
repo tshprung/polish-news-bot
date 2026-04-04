@@ -116,6 +116,7 @@ SYSTEM_PROMPT = (
     "If the Polish text includes any of: named people or agencies, dates, figures/statistics, permits/bans/decisions, "
     "or who said what— you must output Hebrew summarizing those facts; do not answer INSUFFICIENT. "
     "Interviews, diplomacy, and regional/environmental regulation count as enough to summarize.\n\n"
+    "Every Hebrew-line answer must contain Hebrew script; never reply with English-only or Polish-only Latin sentences. "
     "When outputting Hebrew, write only the summary text—never prefix with עברית:, תרגום:, Hebrew:, Summary:, or similar. "
     "Hebrew line must start with Hebrew; Latin for personal names, all Polish place names (Gdańsk, Gdynia, Trójmiasto, etc.—as in source), acronyms (NATO, PiS). "
     "No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
