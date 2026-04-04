@@ -22,6 +22,26 @@ log = logging.getLogger(__name__)
 
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 
+_LEADING_LABEL_PATTERNS = (
+    r"^עברית\s*:\s*",
+    r"^תרגום\s*:\s*",
+    r"^סיכום\s*:\s*",
+    r"^hebrew\s*:\s*",
+    r"^summary\s*:\s*",
+)
+
+
+def strip_leading_summary_labels(text: str) -> str:
+    """Remove model echoes like 'עברית:' before the real summary."""
+    s = text.strip()
+    for _ in range(4):
+        prev = s
+        for pat in _LEADING_LABEL_PATTERNS:
+            s = re.sub(pat, "", s, count=1, flags=re.IGNORECASE).lstrip()
+        if s == prev:
+            break
+    return s
+
 
 def _source_suggests_warsaw_area_not_israel(polish_blob: str) -> bool:
     """True if folded Polish text points to Warsaw/Syrenka without an Israel/Tel Aviv angle."""
@@ -145,6 +165,8 @@ def summarize_in_hebrew(
 
     if len(result) < 15:
         return None, "response too short after retry"
+
+    result = strip_leading_summary_labels(result)
 
     result = re.sub(
         r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]", "", result
