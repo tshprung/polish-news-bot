@@ -105,6 +105,7 @@ SYSTEM_PROMPT = (
     "Polish cities, towns, and regions: always write them in Latin exactly as in the article, inside the Hebrew line—"
     "never as Hebrew-only placenames (wrong: פרזמישל for Przemyśl; wrong: בגדה or Hebrew phonetics for Gdańsk—reads like unrelated geography). "
     "Right pattern: Hebrew words + Latin city (e.g. …ב-Gdańsk, …ב-Warszawa, …ב-Kraków). "
+    "For the country as a whole, use Hebrew פולין (e.g. בפולין, תושבי פולין)—not the Polish word 'Polska' or ב-Polska (confusing hybrid). "
     "Do not put Israeli cities (תל אביב, ירושלים, etc.) instead of Polish ones. "
     "Syrenka / pomnik Syrenki = Warsaw mermaid monument in Warszawa, not Israel.\n\n"
     "Reply with exactly one line, no preamble:\n"

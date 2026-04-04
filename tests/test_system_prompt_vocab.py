@@ -15,3 +15,9 @@ def test_system_prompt_gdansk_latin_not_hebrew_begeda():
     assert "Gdańsk" in SYSTEM_PROMPT
     assert "בגדה" in SYSTEM_PROMPT
     assert "ב-Gdańsk" in SYSTEM_PROMPT
+
+
+def test_system_prompt_country_is_polin_not_polska():
+    """Avoid 'ב-Polska' hybrid; country should be פולין in Hebrew."""
+    assert "פולין" in SYSTEM_PROMPT
+    assert "ב-Polska" in SYSTEM_PROMPT
