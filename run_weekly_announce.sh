@@ -1,6 +1,6 @@
 #!/bin/bash
-# Schedule with cron (Jerusalem time), e.g. Sunday 18:00:
-#   CRON_TZ=Asia/Jerusalem
+# Schedule with cron (Warsaw time), e.g. Sunday 18:00:
+#   CRON_TZ=Europe/Warsaw
 #   0 18 * * 0 /opt/polish_news/run_weekly_announce.sh
 set -a
 source /opt/polish_news/.env

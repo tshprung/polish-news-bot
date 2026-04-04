@@ -6,14 +6,14 @@ import weekly_announce as wa
 
 
 def test_iso_week_key_matches_isocalendar():
-    dt = datetime(2026, 4, 5, 12, 0, tzinfo=ZoneInfo("Asia/Jerusalem"))
+    dt = datetime(2026, 4, 5, 12, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
     y, w, _ = dt.isocalendar()
     assert wa.iso_week_key(dt) == f"{y}-W{w:02d}"
     assert dt.weekday() == 6
 
 
 def test_should_run_weekday_and_hour():
-    tz = ZoneInfo("Asia/Jerusalem")
+    tz = ZoneInfo("Europe/Warsaw")
     sunday_18 = datetime(2026, 4, 5, 18, 0, tzinfo=tz)
     monday_18 = datetime(2026, 4, 6, 18, 0, tzinfo=tz)
     sunday_17 = datetime(2026, 4, 5, 17, 0, tzinfo=tz)

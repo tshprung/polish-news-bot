@@ -1,4 +1,4 @@
-"""Weekly Hebrew community/support post (via channel in .env; cron ~Sunday 18:00 Jerusalem)."""
+"""Weekly Hebrew community/support post (via channel in .env; cron ~Sunday 18:00 Warsaw)."""
 from __future__ import annotations
 
 import html
