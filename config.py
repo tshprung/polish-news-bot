@@ -109,7 +109,10 @@ SYSTEM_PROMPT = (
     "Do not put Israeli cities (תל אביב, ירושלים, etc.) instead of Polish ones. "
     "Syrenka / pomnik Syrenki = Warsaw mermaid monument in Warszawa, not Israel.\n\n"
     "Reply with exactly one line, no preamble:\n"
-    "SKIP - sports; or no Polish internal angle; or no practical impact on life in Poland\n"
+    "SKIP - sports; or no Polish internal angle; or no practical impact on life in Poland; OR wire that is only generic "
+    "great-power/US politics (e.g. Trump and NATO, US senators of both parties warning the White House) where "
+    "only American actors are named and the text does not state Polish institutions, Polish officials, or a concrete Polish stake. "
+    "A Polish outlet republishing Reuters/AP is still SKIP if the facts are US-only with no Poland hook.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
@@ -124,15 +127,22 @@ SYSTEM_PROMPT = (
     '(e.g. Polish „zbiory"/„zbiór" = gathering/harvest → say איסוף or ליקוט, not nonsense like ״זבירות״). '
     "If there is no short standard term, use a plain periphrasis (e.g. חילזון היין / איסוף חילזונים). "
     "No hallucinations. If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
-    "Diplomacy and foreign-policy wires (e.g. US ambassador in Poland, EU/Iran/NATO): if officials are named and quoted or paraphrased, summarize factually; not INSUFFICIENT. "
+    "Diplomacy and foreign policy: summarize when Polish or EU-with-clear-PL actors appear, or when Polish government/opposition "
+    "reactions or risks to Poland are explicit. If the article is only US officials debating among themselves about NATO/US alliances "
+    "and Poland is not part of the story—answer SKIP, not Hebrew. "
+    "US ambassador in Poland, Polish MFA, Sejm, eastern flank affecting PL: those are GO material when facts are present; not INSUFFICIENT. "
     "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n\n"
     f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
 )
 
 CLASSIFY_PROMPT = (
-    "Filter for a Poland-focused channel; feed is already Polish outlets.\n"
-    "SKIP only: foreign story with zero Poland tie, or sports. "
-    "GO for politics, crime, economy, society, weather, accidents, or any Poland/Poles angle; if unsure, GO.\n"
+    "Filter for a Poland-focused channel; the feed is Polish outlets but includes global wires.\n"
+    "SKIP if: (1) sports; OR (2) story is mostly US domestic US politics / US Congress / both US parties on Trump or NATO, "
+    "and the excerpt does NOT mention Polish officials, Polish institutions, or a concrete consequence for Poland; OR "
+    "(3) other foreign items with no Poland/Poles/Polish policy angle.\n"
+    "GO if: events in Poland, Polish actors, EU/NATO stories where Poland's role, border, government position, or domestic impact is in the text, "
+    "or crime/economy/weather/accidents tied to PL.\n"
+    "Rule of thumb: if the only named politicians are American and the topic is generic transatlantic debate without Poland—SKIP (do not default to GO).\n"
     "One word: SKIP or GO."
 )
 
