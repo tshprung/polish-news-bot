@@ -397,6 +397,72 @@ def pan_eu_property_guide_skip_reason() -> str:
     return "pan-eu guide: EU-wide explainer without PL/DE hook in teaser"
 
 
+# Family / patient crowdfunding: zbiórka, zrzutka, appeals for treatment costs — not national news.
+_CROWDFUND_REQUEST = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"zbiork\w*|zrzutk\w*|wesprzyj|wsparcie\s+finansow|darowizn\w*|"
+    r"wpłac\s+na|wplac\s+na|przekaz\s+(?:datek|darowizn)|"
+    r"apel\w*\s+o\s+(?:pomoc|wspar|pieniadz|fundusz)|"
+    r"prosz\w*\s+o\s+(?:pomoc|wspar|datek)|"
+    r"potrzeb(?:uj\w*|a)\s+(?:\d|pieniadz|fundus|zł|zl)|"
+    r"zebr\w*\s+(?:jeszcze|brakuje|kwot|ponad|zł|zl|milion|mln)|"
+    r"zbieram\w*\s+na|zbiorka\s+charytatywn|"
+    r"gofundme|crowdfund|zrzutka\.pl"
+    r")",
+)
+_MEDICAL_FAMILY_STORY = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"leczen\w*|terapi\w*|operacj\w*|chorob\w*|chorego|genetyczn\w*|"
+    r"dystrofi|mukowisc|oddział\w*\s+szpital|szpital\w*\s+w\s+usa|\busa\b.{0,50}(?:dol|leczen|terapi|koszt)|"
+    r"koszt\w*\s+(?:leczen|terapi|operac)|dzieck\w*|syn\w*|cork\w*|rodzin\w*|walczy\s+o\s+zyc|"
+    r"ratowac\s+zyc|ratuje|najstarsze\s+dziecko"
+    r")",
+)
+_MONEY_GOAL = re.compile(
+    r"(?is)"
+    r"(?:\d+[.,]?\d*\s*(?:mln|milion|tys\.|tysiac)\s*(?:zł|zl|złot|eur|usd|dol)|"
+    r"złotych|milion\w*\s+dol|dol\w*\s+.*leczen)"
+)
+_OFFICIAL_HEALTH_PROGRAM = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"\bnfz\b|minister(stwo)?\s+zdrowia|refundacj\w*\s+(?:lek|program|leku)|"
+    r"rzad\w*\s+(?:przyzn|przeznacz|zdecyd|zatwierdz|wprowadz)|"
+    r"uchwalon\w*\s+(?:w\s+)?sejm|ustaw\w*\s+o\s+(?:zdrow|refund)|"
+    r"program\s+lekowy|budzet\w*\s+(?:państw|ochrony)"
+    r")",
+)
+
+
+def should_skip_private_medical_fundraiser_blob(blob: str) -> bool:
+    """True for donation / treatment-cost appeals (zbiórka, family seeks funds), not policy/refund news."""
+    raw = (blob or "").strip()
+    if len(raw) < 50:
+        return False
+    f = fold_pl(raw[:12000])
+    if _OFFICIAL_HEALTH_PROGRAM.search(f):
+        return False
+    if _CROWDFUND_REQUEST.search(f) and _MEDICAL_FAMILY_STORY.search(f):
+        return True
+    if _MONEY_GOAL.search(f) and _MEDICAL_FAMILY_STORY.search(f) and re.search(
+        r"(?is)(?:zbiork|zrzutk|wspar|darowizn|apel|zbier|potrzeb|wplac|przekaz)", f
+    ):
+        return True
+    return False
+
+
+def should_skip_private_medical_fundraiser_teaser(title: str, summary: str) -> bool:
+    return should_skip_private_medical_fundraiser_blob(
+        f"{(title or '').strip()}\n{(summary or '').strip()}"
+    )
+
+
+def crowdfunding_medical_skip_reason() -> str:
+    return "rss teaser: private medical fundraiser / donation appeal"
+
+
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
 MAX_SUMMARY_WORDS = 40
@@ -447,6 +513,8 @@ SYSTEM_PROMPT = (
     "when there is no current decision, vote, law, investigation, or dated incident—only commentary on past controversies.\n"
     "SKIP - entertainment / Unterhaltung chat (e.g. BILD MayWay) whose teaser is only ‘show X hosted politician Y’ "
     "with no bill, vote, scandal fact, or policy outcome stated.\n"
+    "SKIP - private **medical fundraiser** or family **donation appeal** (zbiórka / zrzutka / help pay for therapy abroad) — not NFZ, "
+    "ministerial programs, or law.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"

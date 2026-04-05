@@ -16,6 +16,7 @@ from config import (
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
     SYSTEM_PROMPT,
+    crowdfunding_medical_skip_reason,
     entertainment_chat_skip_reason,
     evergreen_culture_skip_reason,
     fold_pl,
@@ -26,6 +27,8 @@ from config import (
     should_skip_evergreen_culture_teaser,
     should_skip_information_poor_rss_teaser,
     should_skip_pan_eu_generic_property_guide,
+    should_skip_private_medical_fundraiser_blob,
+    should_skip_private_medical_fundraiser_teaser,
     zeit_jahrgang_index_skip_reason,
 )
 
@@ -119,6 +122,9 @@ def summarize_in_hebrew(
     if should_skip_pan_eu_generic_property_guide(article["title"], article["summary"]):
         return None, pan_eu_property_guide_skip_reason()
 
+    if should_skip_private_medical_fundraiser_teaser(article["title"], article["summary"]):
+        return None, crowdfunding_medical_skip_reason()
+
     if is_zeit_jahrgang_index_url(article.get("link")):
         return None, zeit_jahrgang_index_skip_reason()
 
@@ -129,6 +135,11 @@ def summarize_in_hebrew(
     body = fetch_article_body(session, article["link"], http_timeout)
     text = (article["title"] + ". " + body) if body else rss_text
     body_available = bool(body)
+
+    if body and should_skip_private_medical_fundraiser_blob(
+        (article["title"] or "") + "\n" + body[:10000]
+    ):
+        return None, crowdfunding_medical_skip_reason()
 
     decision = classify(client, text)
     if decision == "SKIP":
