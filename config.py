@@ -146,8 +146,9 @@ def should_skip_commercial_clickbait_title(title: str) -> bool:
 
 # DIE ZEIT Jahrgang index (year hub), not a single article; RSS may link here by mistake.
 # Must not match paths like /2026-04/... (date slug under /news/ etc.).
+# Allow mobile / other subdomains and scheme-less links seen in feeds.
 _ZEIT_JAHRGANG_INDEX = re.compile(
-    r"^https?://(?:www\.)?zeit\.de/2026(?:/|$|\?)", re.I
+    r"^https?://(?:[a-z0-9-]+\.)?zeit\.de/2026(?:/|$|\?)", re.I
 )
 
 
@@ -155,7 +156,14 @@ def is_zeit_jahrgang_index_url(url: str | None) -> bool:
     """True for zeit.de/2026 archive hub URLs only."""
     if not url or not isinstance(url, str):
         return False
-    return bool(_ZEIT_JAHRGANG_INDEX.match(url.strip()))
+    u = url.strip()
+    if u.startswith("//"):
+        u = "https:" + u
+    elif not re.match(r"^https?://", u, re.I) and re.match(
+        r"(?:[a-z0-9-]+\.)?zeit\.de/", u, re.I
+    ):
+        u = "https://" + u
+    return bool(_ZEIT_JAHRGANG_INDEX.match(u))
 
 
 def zeit_jahrgang_index_skip_reason() -> str:
@@ -174,6 +182,14 @@ def skip_admin_notify_for_reason(reason: str | None) -> bool:
         return False
     r = reason.lower()
     return any(r.startswith(p) for p in SKIP_NOTIFY_EXEMPT_PREFIXES)
+
+
+def skip_admin_notify_for_article(article: dict | None, reason: str | None = None) -> bool:
+    """Skip admin DM for known-noise skips (rss teaser, etc.) and ZEIT year-hub URLs."""
+    if skip_admin_notify_for_reason(reason):
+        return True
+    link = (article or {}).get("link")
+    return bool(is_zeit_jahrgang_index_url(link))
 
 # Interview / lifestyle teasers that name a person and invite a click but state no event, figure, or decision.
 _RSS_TEASER_SOFT_PROFILE = re.compile(
@@ -525,6 +541,8 @@ SYSTEM_PROMPT = (
     "Every Hebrew-line answer must contain Hebrew script; never reply with English-only or Polish-only Latin sentences. "
     "When outputting Hebrew, write only the summary text—never prefix with עברית:, תרגום:, Hebrew:, Summary:, or similar. "
     "Hebrew line must start with Hebrew; Latin for personal names, all Polish place names (Gdańsk, Gdynia, Trójmiasto, etc.—as in source), acronyms (NATO, PiS). "
+    "Polish age headlines **N-latka** / **N-latek** (years old, feminine/masculine): write **בת N** or **בן N** from context, "
+    "or **נערה בת N** / **נער בן N** — **never** hyphen junk like **17-למת** or other fake Hebrew-number mashups. "
     "No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
     "Vocabulary: use real Modern Hebrew words only—never invent pseudo-Hebrew that looks like a calque of Polish "
     '(e.g. Polish „zbiory"/„zbiór" = gathering/harvest → say איסוף or ליקוט, not nonsense like ״זבירות״). '

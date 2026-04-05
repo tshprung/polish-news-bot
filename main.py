@@ -12,7 +12,7 @@ from config import (
     WEATHER_POST_MIN_INTERVAL_SEC,
     is_zeit_jahrgang_index_url,
     should_skip_commercial_clickbait_title,
-    skip_admin_notify_for_reason,
+    skip_admin_notify_for_article,
 )
 from database import (
     fuel_tourism_post_allowed,
@@ -122,7 +122,7 @@ def main():
             if hebrew is None:
                 if skip_reason:
                     log.info(f"Skipped ({skip_reason}): {article['title'][:70]}")
-                    if not skip_admin_notify_for_reason(skip_reason):
+                    if not skip_admin_notify_for_article(article, skip_reason):
                         notify_admin(
                             session,
                             article,
@@ -157,7 +157,8 @@ def main():
         except Exception as e:
             log.exception("Error on article %s", article["id"])
             try:
-                notify_admin(session, article, f"runtime error: {e}", ADMIN_TELEGRAM_ID, to)
+                if not skip_admin_notify_for_article(article):
+                    notify_admin(session, article, f"runtime error: {e}", ADMIN_TELEGRAM_ID, to)
             except Exception:
                 pass
 
