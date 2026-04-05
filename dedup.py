@@ -207,6 +207,20 @@ def tokens_from_blob(blob: str) -> set:
     ):
         out.add("#pl_tk_judge_oath_row")
 
+    # Poznań: infant with skull injuries / alleged violence; Georgia–Moldova arrests (PL + HE wires).
+    if re.search(r"poznan|poznani|פוזנן", bf) and (
+        re.search(
+            r"niemow|niemowel|5\s*mies|pieciu\s*mies|czaszk|czerep|zlaman|przemoc|"
+            r"zatrzyman|gruzj|gruzi|moldow|szpital",
+            bf,
+        )
+        or re.search(
+            r"תינוק|חודשים|גולגולת|שבר|אלימות|גאורגיה|מולדובה|נעצר|אושפז",
+            bf,
+        )
+    ):
+        out.add("#poznan_infant_abuse_beat")
+
     return out
 
 
@@ -259,6 +273,8 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
         elif "#pl_tk_judge_oath_row" in shared_topics:
             # PL headlines vs HE wires often share zero folded tokens; tag triple-gate is tight enough.
             min_lex = 0
+        elif "#poznan_infant_abuse_beat" in shared_topics:
+            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
         if _lexical_token_overlap(ca, cs) >= min_lex:
             tag = ",".join(sorted(shared_topics))
             return True, f"topic-tag {tag}"

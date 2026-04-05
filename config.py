@@ -16,7 +16,8 @@ FEEDS = [
     "https://pap-mediaroom.pl/kategoria/biznes-i-finanse/rss.xml",
 ]
 
-DEDUP_WINDOW_HOURS = 8
+# Longer horizon so same-day beats (wires hours apart) collapse to one post.
+DEDUP_WINDOW_HOURS = 24
 DEDUP_JACCARD_MIN = 0.15
 DEDUP_DICE_MIN = 0.38
 DEDUP_DICE_RELAXED = 0.32
@@ -52,6 +53,7 @@ _TOPIC_DEDUP_TAGS = frozenset({
     "#baltic_whale_stranding",
     "#de_reiche_fuel_policy",
     "#pl_tk_judge_oath_row",
+    "#poznan_infant_abuse_beat",
 })
 # Shared topic tag alone is too loose; require this many overlapping non-tag tokens too.
 TOPIC_DEDUP_MIN_LEXICAL = 2
@@ -482,8 +484,8 @@ def crowdfunding_medical_skip_reason() -> str:
 
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
-MAX_SUMMARY_WORDS = 40
-MAX_SUMMARY_WORDS_HARD = 48
+MAX_SUMMARY_WORDS = 50
+MAX_SUMMARY_WORDS_HARD = 60
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
@@ -522,7 +524,8 @@ SYSTEM_PROMPT = (
     "SKIP - sports.\n"
     "SKIP - no direct Poland tie (per scope above): another country's **purely domestic** affairs only; **generic EU/Brussels** desk "
     "(bloc-wide cyber, Commission IT briefings, pan-EU consumer explainers) without Polish officials, agencies, parties, or a PL-specific incident; "
-    "**foreign politics** where only other states' actors appear and Poland does not.\n"
+    "**foreign politics** where only other states' actors appear and Poland does not; "
+    "**Hungary-only** calls on Russia sanctions, EU energy crisis, or reopening oil pipelines without Polish officials or a PL angle.\n"
     "SKIP - profile or interview setup that in the excerpt only introduces someone’s career arc, reflections, or generic "
     "themes (e.g. treatment ‘improvements’, healthy-living tips) without a datable event, statistic, binding decision, "
     "or a quoted concrete claim you could relay.\n"
@@ -567,7 +570,8 @@ CLASSIFY_PROMPT = (
     "**GO** if the excerpt clearly concerns **Poland**: events on PL territory, Polish actors and institutions, or an international/EU story "
     "where **Poland is explicitly involved** (named, affected, border, policy position, citizens as the Polish angle).\n"
     "**SKIP** if: sports; or the story **lacks a direct Poland tie** (another country's internal affairs only, generic EU/Brussels desk, "
-    "generic foreign-power politics) — **even when a Polish site syndicates it**.\n"
+    "generic foreign-power politics) — **even when a Polish site syndicates it**; or **Hungary-only** rhetoric on Russia sanctions, "
+    "EU energy, or oil pipelines (e.g. Orbán vs Brussels, Przyjaźń) **without Poland named or a Polish policy stake**.\n"
     "One word: SKIP or GO."
 )
 

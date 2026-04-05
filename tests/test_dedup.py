@@ -135,6 +135,24 @@ def test_cross_run_dedup_uses_snapshot():
     assert row is not None
 
 
+def test_poznan_infant_abuse_hebrew_wires_merge():
+    """Same Poznań infant / skull fractures / Georgia–Moldova arrests beat; HE phrasing differs."""
+    w = timedelta(hours=8)
+    a = _article(
+        "RMF",
+        "בפוזנן אושפז תינוק בן חמישה חודשים עם שברים בגולגולת; נעצרה אמו מגאורגיה ושניים ממולדובה.",
+        "p1",
+    )
+    b = _article(
+        "Fakty",
+        "תינוק בן 5 חודשים בבית חולים בפוזנן לאחר אלימות; גאורגיה ומולדובה בחקירה.",
+        "p2",
+    )
+    dup, detail = _is_near_duplicate(a, b, w)
+    assert dup is True
+    assert "poznan_infant_abuse_beat" in detail
+
+
 def test_same_batch_first_wins_second_dropped():
     conn = _memory_conn()
     now = datetime.now(timezone.utc)
@@ -147,7 +165,7 @@ def test_same_batch_first_wins_second_dropped():
 
 def test_load_dedup_snapshots_respects_window():
     conn = _memory_conn()
-    old = int((datetime.now(timezone.utc) - timedelta(hours=20)).timestamp())
+    old = int((datetime.now(timezone.utc) - timedelta(hours=30)).timestamp())
     conn.execute(
         "INSERT INTO dedup_recent (article_id, title, summary, sort_epoch) VALUES (?,?,?,?)",
         ("old", "t", "s", old),
