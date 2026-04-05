@@ -1,4 +1,4 @@
-"""Constitutional Tribunal judge-oath beat: topic dedup + 24h rate limit."""
+"""Constitutional Tribunal judge-oath beat: topic dedup and 7d default rate limit."""
 
 import sqlite3
 from datetime import timedelta
@@ -49,13 +49,13 @@ def test_hebrew_summary_merges_polish_title_in_dedup_window():
     assert "pl_tk_judge_oath_row" in detail
 
 
-def test_rate_limit_second_post_within_24h(monkeypatch):
+def test_rate_limit_second_post_within_interval(monkeypatch):
     conn = sqlite3.connect(":memory:")
     conn.execute(
         "CREATE TABLE channel_rate_limits ("
         "rate_key TEXT PRIMARY KEY, last_sent_epoch INTEGER NOT NULL)"
     )
-    interval = 24 * 3600
+    interval = 7 * 24 * 3600
     assert tk_judge_oath_post_allowed(conn, interval) is True
     monkeypatch.setattr(db_mod.time, "time", lambda: 5_000_000)
     record_tk_judge_oath_post(conn)

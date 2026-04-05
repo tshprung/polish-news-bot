@@ -185,15 +185,20 @@ def tokens_from_blob(blob: str) -> set:
     _tk_court = (
         r"trybunal\s+konstyt|trybunal\w*\s+konstyt|konstytucyjn.{0,16}trybunal|"
         r"sedzi\w*.{0,40}\btk\b|\btk\b.{0,10}sedzi\w*|"
-        r"בית\s+המשפט\s+החוקתי|בית\s+משפט\s+חוקתי"
+        r"בית\s+המשפט\s+החוקתי|בית\s+משפט\s+חוקתי|"
+        r"\bnawrocki\b.{0,120}\btrybunal\b|\btrybunal\b.{0,120}\bnawrocki\b"
     )
     _tk_oath = (
         r"(?:przysi|zaprzy|zloz|"
-        r"שבוע|שבועה|השביע|שופטים|מינוי|מינויים|ששה\s+שופטים|שניים\s+מתוך)"
+        r"שבוע|שבועה|השביע|שופטים|מינוי|מינויים|ששה\s+שופטים|שניים\s+מתוך|"
+        r"mebluj|"
+        r"tylko.{0,16}(?:dwoch|dwo|dwó|2\s+z\s+sz|2\s+sedz)|"
+        r"dwoch\s+z\s+szesc|dwóch\s+z\s+sześci|szesc\w*.{0,12}sedz"
+        r")"
     )
     _tk_exec = (
         r"(?:nawrocki|prezydent.{0,12}(?:rp|polsk)|prezydent\s+polsk|"
-        r"נשיא\s+פולין|נבוארוקי|נברוקי)"
+        r"נשיא\s+פולין|נבוארוקי|נברוקי|נוברוקי)"
     )
     if (
         re.search(_tk_court, bf)

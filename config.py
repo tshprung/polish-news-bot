@@ -33,8 +33,9 @@ WEATHER_POST_MIN_INTERVAL_SEC = int(os.environ.get("WEATHER_POST_MIN_INTERVAL_SE
 FUEL_TOURISM_POST_MIN_INTERVAL_SEC = int(
     os.environ.get("FUEL_TOURISM_POST_MIN_INTERVAL_SEC", str(24 * 3600))
 )
+# Nawrocki / TK judge-instalment beat: one post per window unless env overrides (major news only).
 TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC = int(
-    os.environ.get("TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC", str(24 * 3600))
+    os.environ.get("TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC", str(7 * 24 * 3600))
 )
 RATE_LIMIT_KEY_WEATHER = "weather_pl_imgw"
 RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL = "fuel_tourism_de_pl_border"
