@@ -74,6 +74,10 @@ _SANITIZE_HB_LINE = re.compile(
     r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]"
 )
 
+_ISRAEL_MENTION_RE = re.compile(
+    r"(?is)(?:\bIsrael\b|Izrael|ישראל|Tel\s*[-]?\s*Aviv|Jerusalem|תל\s*[-]?\s*אביב|ירושלים)"
+)
+
 
 def _sanitize_hebrew_summary_line(result: str) -> str:
     """Decode HTML entities before stripping chars, or &#34; becomes garbage \"34;\"."""
@@ -112,6 +116,21 @@ def _source_suggests_warsaw_area_not_israel(polish_blob: str) -> bool:
 
 def _hebrew_mentions_major_israeli_city(hebrew: str) -> bool:
     return bool(re.search(r"תל\s*[-]?\s*אביב|ירושלים", hebrew))
+
+
+def _strip_erroneous_israel_subject_prefix(hebrew: str, source_blob: str) -> str:
+    """
+    Some German headlines like "Microsoft schlägt Alarm" may get mistranslated as
+    "ישראל ש-Microsoft ..." (as if Israel is the target/subject). Strip that prefix
+    unless the source explicitly mentions Israel.
+    """
+    s = (hebrew or "").strip()
+    if not s.startswith("ישראל"):
+        return s
+    if _ISRAEL_MENTION_RE.search(source_blob or ""):
+        return s
+    # Common bad pattern: "ישראל ש-Microsoft ..." / "ישראל ש Microsoft ..."
+    return re.sub(r"^ישראל\s*ש\s*[-]?\s*", "", s, count=1).lstrip()
 
 
 def classify(client: OpenAI, text: str):
@@ -338,6 +357,10 @@ def summarize_in_hebrew(
     ):
         log.warning("GEO guard: Warsaw-area Polish source but Hebrew cited Tel Aviv/Jerusalem")
         return None, "GEO mismatch (Warsaw/Syrenka story vs Israeli city in Hebrew; re-run)"
+
+    result = _strip_erroneous_israel_subject_prefix(result, text)
+    if not result:
+        return None, "empty after stripping erroneous Israel prefix"
 
     return result, None
 
