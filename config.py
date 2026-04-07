@@ -146,26 +146,13 @@ def should_skip_commercial_clickbait_title(title: str) -> bool:
     return bool(_COMMERCIAL_CLICKBAIT.search(t))
 
 
-# DIE ZEIT Jahrgang index (year hub), not a single article; RSS may link here by mistake.
-# Must not match paths like /2026-04/... (date slug under /news/ etc.).
-# Allow mobile / other subdomains and scheme-less links seen in feeds.
-_ZEIT_JAHRGANG_INDEX = re.compile(
-    r"^https?://(?:[a-z0-9-]+\.)?zeit\.de/2026(?:/|$|\?)", re.I
-)
-
-
 def is_zeit_jahrgang_index_url(url: str | None) -> bool:
-    """True for zeit.de/2026 archive hub URLs only."""
+    """True for links starting with https://www.zeit.de/2026 (ZEIT year hub)."""
     if not url or not isinstance(url, str):
         return False
     u = url.strip()
-    if u.startswith("//"):
-        u = "https:" + u
-    elif not re.match(r"^https?://", u, re.I) and re.match(
-        r"(?:[a-z0-9-]+\.)?zeit\.de/", u, re.I
-    ):
-        u = "https://" + u
-    return bool(_ZEIT_JAHRGANG_INDEX.match(u))
+    # Strict per request: only www + https prefix.
+    return u.lower().startswith("https://www.zeit.de/2026")
 
 
 def zeit_jahrgang_index_skip_reason() -> str:
