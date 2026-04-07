@@ -566,6 +566,11 @@ SYSTEM_PROMPT = (
     "with no bill, vote, scandal fact, or policy outcome stated.\n"
     "SKIP - private **medical fundraiser** or family **donation appeal** (zbiórka / zrzutka / help pay for therapy abroad) — not NFZ, "
     "ministerial programs, or law.\n"
+    "SKIP - service/lifestyle and low-signal noise: shopping/coupons/listicles, horoscopes/quizzes, travel/restaurant 'what to do', "
+    "celebrity/showbiz, and micro-local updates like minor traffic closures or small incidents without broader public impact.\n"
+    "SKIP - weather micro-updates: keep only major warnings/extremes or rate-limited forecast beats.\n"
+    "SKIP - markets daily churn (crypto/stock up-down today) unless there is a concrete enforcement/regulatory decision, major platform outage, "
+    "or clear Poland impact.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
@@ -603,6 +608,8 @@ CLASSIFY_PROMPT = (
     "**SKIP** if: sports; or the story **lacks a direct Poland tie** (another country's internal affairs only, generic EU/Brussels desk, "
     "generic foreign-power politics) — **even when a Polish site syndicates it**; or **Hungary-only** rhetoric on Russia sanctions, "
     "EU energy, or oil pipelines (e.g. Orbán vs Brussels, Przyjaźń) **without Poland named or a Polish policy stake**.\n"
+    "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
+    "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision.\n"
     "One word: SKIP or GO."
 )
 
