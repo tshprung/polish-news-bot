@@ -1,8 +1,11 @@
 """OpenAI: classify + Hebrew summary."""
+import atexit
 import html
 import logging
 import re
 from urllib.parse import urlparse
+
+from dataclasses import dataclass
 
 import requests
 from openai import OpenAI
@@ -29,12 +32,42 @@ from config import (
     should_skip_pan_eu_generic_property_guide,
     should_skip_private_medical_fundraiser_blob,
     should_skip_private_medical_fundraiser_teaser,
+    should_skip_ultra_short_rss_item,
+    ultra_short_rss_skip_reason,
     zeit_jahrgang_index_skip_reason,
 )
 
 log = logging.getLogger(__name__)
 
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
+
+@dataclass
+class _RunTelemetry:
+    classify_calls: int = 0
+    stage2_calls: int = 0
+    stage2_retries: int = 0
+    body_fetched_chars: int = 0
+    stage2_input_chars: int = 0
+
+
+_TEL = _RunTelemetry()
+
+
+@atexit.register
+def _log_run_telemetry() -> None:
+    # Numeric-only (no article text) so it is safe to keep in logs.
+    if _TEL.classify_calls == 0 and _TEL.stage2_calls == 0:
+        return
+    avg_in = (_TEL.stage2_input_chars / _TEL.stage2_calls) if _TEL.stage2_calls else 0.0
+    avg_body = (_TEL.body_fetched_chars / _TEL.classify_calls) if _TEL.classify_calls else 0.0
+    log.info(
+        "OpenAI telemetry: classify_calls=%d stage2_calls=%d stage2_retries=%d avg_stage2_input_chars=%.0f avg_body_chars=%.0f",
+        _TEL.classify_calls,
+        _TEL.stage2_calls,
+        _TEL.stage2_retries,
+        avg_in,
+        avg_body,
+    )
 
 _HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
 _SANITIZE_HB_LINE = re.compile(
@@ -82,6 +115,7 @@ def _hebrew_mentions_major_israeli_city(hebrew: str) -> bool:
 
 
 def classify(client: OpenAI, text: str):
+    _TEL.classify_calls += 1
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=5,
@@ -96,6 +130,16 @@ def classify(client: OpenAI, text: str):
     return "GO"
 
 
+def _rss_excerpt_substantial(article: dict) -> bool:
+    summary = (article.get("summary") or "").strip()
+    title = (article.get("title") or "").strip()
+    if len(summary) >= 200:
+        return True
+    if len(title) + len(summary) >= 300:
+        return True
+    return len(summary) >= 120 and len(title) + len(summary) >= 220
+
+
 def summarize_in_hebrew(
     client: OpenAI,
     session: requests.Session,
@@ -105,6 +149,9 @@ def summarize_in_hebrew(
     rss_text = article["title"]
     if article["summary"]:
         rss_text += ". " + article["summary"]
+
+    if should_skip_ultra_short_rss_item(article.get("title"), article.get("summary")):
+        return None, ultra_short_rss_skip_reason()
 
     if should_skip_information_poor_rss_teaser(article["title"], article["summary"]):
         return None, rss_teaser_skip_reason()
@@ -133,6 +180,8 @@ def summarize_in_hebrew(
         return None, f"paywalled domain ({domain})"
 
     body = fetch_article_body(session, article["link"], http_timeout)
+    if body:
+        _TEL.body_fetched_chars += len(body)
     text = (article["title"] + ". " + body) if body else rss_text
     body_available = bool(body)
 
@@ -145,9 +194,13 @@ def summarize_in_hebrew(
     if decision == "SKIP":
         return None, None
 
-    stage2_limit = 4000
+    stage2_limit = 2800
+    if not _rss_excerpt_substantial(article) and len(body or "") >= 4500:
+        stage2_limit = 3500
 
     def call_stage2(user_blob: str):
+        _TEL.stage2_calls += 1
+        _TEL.stage2_input_chars += len(user_blob)
         return client.chat.completions.create(
             model="gpt-4o",
             max_tokens=400,
@@ -174,7 +227,9 @@ def summarize_in_hebrew(
 
     result = ""
     insuf_hint_tier = 0  # 0=none, 1=standard insufficient hint, 2=long-article / quote-heavy hint
-    for attempt in range(3):
+    for attempt in range(2):
+        if attempt >= 1:
+            _TEL.stage2_retries += 1
         user_blob = f"Article: {text[:stage2_limit]}"
         if insuf_hint_tier == 1:
             user_blob = f"{user_blob}\n\n{insufficient_retry_note}"
@@ -214,6 +269,10 @@ def summarize_in_hebrew(
         if attempt >= 2:
             return None, "response too short after retry"
 
+    if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
+        if not body_available:
+            return None, "body not accessible (paywall or blocked)"
+        return None, "insufficient content even with full article"
     if len(result) < 15:
         return None, "response too short after retry"
 

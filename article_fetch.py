@@ -10,6 +10,46 @@ log = logging.getLogger(__name__)
 # requests uses ISO-8859-1 when HTML has no charset; Polish portals are usually UTF-8 → mojibake in resp.text.
 _BAD_DEFAULT_ENCODINGS = frozenset({"iso-8859-1", "windows-1252"})
 
+# Keep fetch results bounded: stage2 will truncate again, but capping here reduces prompt bloat,
+# speeds classify, and reduces retries driven by noisy boilerplate.
+_MAX_BODY_CHARS = 8000
+
+
+def _trim_boilerplate(text: str) -> str:
+    if not text:
+        return ""
+    lines = [ln.strip() for ln in text.splitlines()]
+    cleaned: list[str] = []
+    for ln in lines:
+        if len(ln) < 14:
+            continue
+        low = ln.lower()
+        if any(
+            k in low
+            for k in (
+                "reklama",
+                "cookies",
+                "polityka prywatności",
+                "regulamin",
+                "zaloguj",
+                "zarejestruj",
+                "subskryb",
+                "kup dostęp",
+                "udostępnij",
+                "polecamy",
+                "czytaj także",
+                "zobacz także",
+                "więcej na",
+                "przeczytaj również",
+            )
+        ):
+            continue
+        cleaned.append(ln)
+    out = "\n".join(cleaned).strip()
+    if len(out) > _MAX_BODY_CHARS:
+        out = out[:_MAX_BODY_CHARS].rsplit("\n", 1)[0].strip() or out[:_MAX_BODY_CHARS].strip()
+    return out
+
 
 def _html_text(response: requests.Response) -> str:
     """Decode HTML body with a plausible charset (avoids garbled Polish in resp.text)."""
@@ -170,6 +210,7 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
             if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
+            text = _trim_boilerplate(text)
             log.info(f"Fetched {len(text)} chars (JSON-LD) from {url}")
             return text
 
@@ -185,8 +226,9 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
             if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
+            text = _trim_boilerplate(text.strip())
             log.info(f"Fetched {len(text)} chars (DOM) from {url}")
-            return text.strip()
+            return text
 
         def extract_paragraphs(source):
             paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
@@ -209,8 +251,9 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
         if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
             log.warning(f"Paywall detected at {url}, ignoring fetched content")
             return ""
+        text = _trim_boilerplate(text.strip())
         log.info(f"Fetched {len(text)} chars from {url}")
-        return text.strip()
+        return text
     except Exception as e:
         log.warning(f"Could not fetch article body from {url}: {e}")
         return ""

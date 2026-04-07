@@ -72,12 +72,11 @@ def test_insufficient_with_long_body_exhausts_third_hint_tier(monkeypatch):
         "GO",
         "INSUFFICIENT",
         "INSUFFICIENT",
-        "INSUFFICIENT",
     )
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
     assert out is None
     assert reason == "insufficient content even with full article"
-    assert client.chat.completions.create.call_count == 4
+    assert client.chat.completions.create.call_count == 3
 
 
 def test_insufficient_immediate_when_body_unreachable(monkeypatch):
@@ -111,14 +110,13 @@ def test_hebrew_summary_after_two_insufficient_retries(monkeypatch):
     client = _client_with_responses(
         "GO",
         "INSUFFICIENT",
-        "INSUFFICIENT",
         he,
     )
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
     assert reason is None
     assert out is not None
     assert "סיכום" in out
-    assert client.chat.completions.create.call_count == 4
+    assert client.chat.completions.create.call_count == 3
 
 
 def test_wp_poll_latin_only_then_hebrew_retry(monkeypatch):

@@ -104,6 +104,37 @@ SPORTS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Very short RSS items are often headlines without facts; skipping them saves tokens.
+_HARD_NEWS_SIGNALS = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"\b\d{2,}\b|"
+    r"areszt|zatrzym|prokuratur|sąd|wyrok|oskarż|"
+    r"zgin|rann|"
+    r"sejm|rząd|minister|"
+    r"wybuch|pożar|pozar|"
+    r"strajk|"
+    r"\bue\b|nato|"
+    r")"
+)
+
+
+def should_skip_ultra_short_rss_item(title: str | None, summary: str | None) -> bool:
+    t = (title or "").strip()
+    s = (summary or "").strip()
+    combined_len = len(t) + len(s)
+    if combined_len >= 160:
+        return False
+    if len(s) >= 120:
+        return False
+    if _HARD_NEWS_SIGNALS.search(f"{t}\n{s}"):
+        return False
+    return combined_len >= 60
+
+
+def ultra_short_rss_skip_reason() -> str:
+    return "rss teaser: too short to summarize (skip to save tokens)"
+
 # Lifestyle listicles, coupon/shopping wire copy, and obvious advertorial markers (any language in feeds).
 _COMMERCIAL_CLICKBAIT = re.compile(
     r"(?i)"
