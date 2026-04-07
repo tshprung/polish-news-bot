@@ -3,7 +3,7 @@ import logging
 import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -11,6 +11,7 @@ import feedparser
 from config import (
     DB_PATH,
     FEEDS,
+    MAX_ARTICLE_AGE_HOURS,
     RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL,
     RATE_LIMIT_KEY_TK_JUDGE_OATH,
     RATE_LIMIT_KEY_WEATHER,
@@ -119,6 +120,8 @@ def record_tk_judge_oath_post(conn: sqlite3.Connection) -> None:
 
 def get_new_articles(conn):
     new_articles = []
+    now_utc = datetime.now(timezone.utc)
+    min_dt = now_utc - timedelta(hours=int(MAX_ARTICLE_AGE_HOURS))
     for feed_url in FEEDS:
         try:
             feed = feedparser.parse(feed_url)
@@ -134,7 +137,12 @@ def get_new_articles(conn):
                     if published:
                         dt = datetime(*published[:6], tzinfo=timezone.utc)
                     else:
-                        dt = datetime.now(timezone.utc)
+                        dt = now_utc
+                    if dt < min_dt:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article_id,)
+                        )
+                        continue
                     dt_local = dt.astimezone(ZoneInfo("Europe/Warsaw"))
                     new_articles.append({
                         "id": article_id,
@@ -147,4 +155,5 @@ def get_new_articles(conn):
                     })
         except Exception as e:
             log.error(f"Failed to fetch {feed_url}: {e}")
+    conn.commit()
     return new_articles

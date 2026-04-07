@@ -16,6 +16,9 @@ FEEDS = [
     "https://pap-mediaroom.pl/kategoria/biznes-i-finanse/rss.xml",
 ]
 
+# Only ingest RSS items from the last 24 hours.
+MAX_ARTICLE_AGE_HOURS = 24
+
 # Longer horizon so same-day beats (wires hours apart) collapse to one post.
 DEDUP_WINDOW_HOURS = 24
 DEDUP_JACCARD_MIN = 0.15
