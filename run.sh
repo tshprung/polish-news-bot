@@ -1,4 +1,5 @@
 #!/bin/bash
+export TZ=Europe/Warsaw
 set -a
 source /opt/polish_news/.env
 set +a
