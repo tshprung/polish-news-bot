@@ -18,6 +18,8 @@ from config import (
     OPENAI_MAX_RETRIES,
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
+    STAGE2_INPUT_CHARS_DEFAULT,
+    STAGE2_INPUT_CHARS_LONG_BODY,
     SYSTEM_PROMPT,
     baltic_marine_wildlife_no_poland_skip_reason,
     baltic_wildlife_history_skip_reason,
@@ -234,9 +236,9 @@ def summarize_in_hebrew(
     if decision == "SKIP":
         return None, None
 
-    stage2_limit = 2800
+    stage2_limit = int(STAGE2_INPUT_CHARS_DEFAULT)
     if not _rss_excerpt_substantial(article) and len(body or "") >= 4500:
-        stage2_limit = 3500
+        stage2_limit = int(STAGE2_INPUT_CHARS_LONG_BODY)
 
     def call_stage2(user_blob: str):
         _TEL.stage2_calls += 1
