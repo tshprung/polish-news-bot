@@ -334,6 +334,146 @@ def evergreen_culture_skip_reason() -> str:
     return "rss teaser: evergreen culture piece (no news hook)"
 
 
+# Baltic / North German coast: centuries-long human interest in whales (church art, dissection history)
+# — not a current incident, no Poland tie. Matches ZEIT-style slugs and German/Hebrew teasers.
+_WILDLIFE_HISTORY_URL = re.compile(
+    r"(?i)(?:"
+    r"wale-bewegten-schon-vor-jahrhunderten|"
+    r"vor-jahrhunderten-die-mensch|"
+    r"ostsee[-_]wale[^/?#]{0,50}jahrhundert|"
+    r"jahrhundert[^/?#]{0,50}(?:wal|wale)\b"
+    r")",
+)
+_WHALE_BREAKING_TEASER = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"gestrandet|strandung|angeschwemmt|"
+    r"\b(?:schwerer\s+|tierischer\s+)?unfall\b|einsatzkräfte|rettung|"
+    r"polizei.{0,32}(?:sperr|absperr)|"
+    r"\bcarcass\b|gestorben\w*|"
+    r"veterinär.{0,20}(?:untersuch|obduzi)|"
+    r"(?:martwy|martwa|martw\w*)\s+wieloryb|"
+    r"wieloryb\w*.{0,40}(?:utkn|plaż|brzeg|strand|znalez|wyłow|"
+    r"znalaz|śmiert|nie\s*żyje)|"
+    r"חילוץ|להציל\s+את|גופת\s+לוויתן|לוויתן\s+מת(?:\s|$)"
+    r")",
+)
+_BALTIC_COAST_WILDLIFE = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"\bostsee\b|ostsee-ufer|binnen(?:meer|ostsee)|"
+    r"\b(?:wismar|greifswald|stralsund|rostock|lübeck|lubeck)\b|"
+    r"rügen|rugen|vorpommer|mecklen|timmendorf|usedom|"
+    r"\bbałtyk|baltyk|baltic\b|"
+    r"מפרץ|הבלטי|גרייפסוואלד|וויסמר"
+    r")",
+)
+_WHALE_LEXEME = re.compile(
+    r"(?is)(?:\bwale?\b|wieloryb\w*|wal\s*strand|לוויתן|whales?|orca\b)",
+)
+_WILDLIFE_HISTORY_FRAMING = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"jahrhundert\w*|vor\s+jahrhunderten|schon\s+vor\s+jahrhundert|"
+    r"beweg\w{0,16}.{0,80}(?:jahrhundert|menschen)|"
+    r"(?:kirchen|kirche).{0,60}(?:malerei|gemälde|fresk)|"
+    r"geschicht\w*.{0,50}(?:whale|wale|wal\b|ostsee)|"
+    r"(?:for|over)\s+centuries\b|centur(?:y|ies)\s+of|"
+    r"מאות\s+שנים|לפני\s+מאות|"
+    r"היסטורי\w?.{0,40}(?:לוויתן|חיות\s+ים)|"
+    r"(?:לוויתן|חיות\s+הים).{0,100}(?:לאורך\s+ההיסטור|במאות)"
+    r")",
+)
+
+
+def should_skip_baltic_wildlife_history_teaser(
+    title: str, summary: str, link: str | None = None,
+) -> bool:
+    """
+    True for Baltic/DE coast whale ecology-as-cultural-history (centuries, church art),
+    not a current stranding or operational response — no Poland national-news hook.
+    """
+    t = (title or "").strip()
+    s = (summary or "").strip()
+    u = (link or "").strip()
+    combined = f"{t}\n{s}\n{u}".strip()
+    if len(combined) < 48:
+        return False
+    if _WHALE_BREAKING_TEASER.search(combined):
+        return False
+    if _WILDLIFE_HISTORY_URL.search(u):
+        if _WHALE_LEXEME.search(combined) or _WHALE_LEXEME.search(u):
+            return True
+        return False
+    if not (
+        _BALTIC_COAST_WILDLIFE.search(combined)
+        and _WHALE_LEXEME.search(combined)
+        and _WILDLIFE_HISTORY_FRAMING.search(combined)
+    ):
+        return False
+    return True
+
+
+def baltic_wildlife_history_skip_reason() -> str:
+    return "rss teaser: baltic wildlife history (no current incident)"
+
+
+# Baltic Sea whale / dolphin / large cetacean rescue or death wires syndicated as „świat” —
+# skip when no Poland-specific hook anywhere in title + teaser + fetched body prefix.
+_BALTIC_SEA_CONTEXT = re.compile(
+    r"(?is)(?:"
+    r"bałtyk|baltyk|baltyku|morze\s+bałty|morze\s+balty|plaza\s+baltyku|"
+    r"\bbaltic\b|\bostsee\b|ostsee-?ufer|"
+    r"ים\s+הבלטי|הבלטי\b"
+    r")",
+)
+_LARGE_CETACEAN_TEASER = re.compile(
+    r"(?is)(?:"
+    r"wieloryb\w*|humbak\w*|karłowaty|karlowaty|"
+    r"delfin\w*|orca\b|kaszalot\w*|kaszalota|"
+    r"\bwalu\b|\bwalem\b|\bwhale\b|humpback|"
+    r"לוויתן|גובהנן|צדפי"
+    r")",
+)
+_POLAND_HOOK_FOR_BALTIC_WILDLIFE = re.compile(
+    r"(?is)(?:"
+    r"(?<![a-z])polsk\w*|w\s+polsce|"  # Polish actors / territory (never match TLD .pl in URLs)
+    r"minister\w*.{0,40}polsk|"
+    r"gdans|gdyni|sopot|trójmiasto|trojmiasto|ustka|"
+    r"kołobrz|kolobrz|świnouj|swinouj|"
+    r"wybrzeż\w*.{0,24}(?:polsk|polski)|"
+    r"panstwowe\w*gospodar|pgw\b|"
+    r"פולין|פולנים|פולני|בפולין|"
+    r"(?<![a-z])gdansk\b|(?<![a-z])gdynia\b"
+    r")",
+)
+
+
+def should_skip_baltic_marine_wildlife_without_poland_blob(blob: str) -> bool:
+    """
+    True when the text is clearly about the Baltic + a large marine mammal (whale, dolphin, etc.),
+    but Polish institutions, territory, or citizens never appear — not Poland national news.
+    """
+    raw = (blob or "").strip()
+    if len(raw) < 42:
+        return False
+    sample = raw[:14000]
+    f = fold_pl(sample)
+    sea = _BALTIC_SEA_CONTEXT.search(sample) or _BALTIC_SEA_CONTEXT.search(f)
+    mammal = _LARGE_CETACEAN_TEASER.search(sample) or _LARGE_CETACEAN_TEASER.search(f)
+    if not (sea and mammal):
+        return False
+    if _POLAND_HOOK_FOR_BALTIC_WILDLIFE.search(sample) or _POLAND_HOOK_FOR_BALTIC_WILDLIFE.search(
+        f
+    ):
+        return False
+    return True
+
+
+def baltic_marine_wildlife_no_poland_skip_reason() -> str:
+    return "rss teaser: baltic marine mammal story without Poland hook"
+
+
 def should_skip_entertainment_politician_chat_teaser(
     title: str, summary: str, link: str | None = None,
 ) -> bool:
@@ -565,6 +705,12 @@ SYSTEM_PROMPT = (
     "or a quoted concrete claim you could relay.\n"
     "SKIP - evergreen culture / symbolic history (e.g. national anthem rows, ‘history of the hymn’, podcast backstory) "
     "when there is no current decision, vote, law, investigation, or dated incident—only commentary on past controversies.\n"
+    "SKIP - Baltic/German **wildlife history or cultural reception** (e.g. Ostsee whales “moved people for centuries”, church murals, "
+    "historical dissections as curiosity) **without** a **current** incident (stranding response, official veterinary probe, transport ban) "
+    "and **without** Poland or Poles in the excerpt.\n"
+    "SKIP - **Baltic Sea** whale / dolphin / large marine-mammal rescue or death when the excerpt **never** ties to **Poland**: "
+    "no Polish Baltic coast (Gdańsk, Gdynia, etc.), no Polish agencies or responders named, no Polish citizens as the story’s stake—"
+    "generic „świat” or German/Danish coast only.\n"
     "SKIP - entertainment / Unterhaltung chat (e.g. BILD MayWay) whose teaser is only ‘show X hosted politician Y’ "
     "with no bill, vote, scandal fact, or policy outcome stated.\n"
     "SKIP - private **medical fundraiser** or family **donation appeal** (zbiórka / zrzutka / help pay for therapy abroad) — not NFZ, "
@@ -592,6 +738,10 @@ SYSTEM_PROMPT = (
     "German *Schleuse* in rivers/canals = a navigation lock: say תא נעילה or סכר נעילה (never meaningless strings like "
     "שעשוע connected to נעילה; *Moselschleuse* = lock on the Moselle—use Hebrew תא נעילה + Latin Mosel/Koblenz as in the source). "
     "If the article is German wire (dpa, ZEIT, etc.), keep German place names in Latin where Hebrew would be ambiguous.\n"
+    "Marine mammals: **humpback** (*Humbak* / *humpback*) in Hebrew use **לוויתן גובהנן** or **לוויתן צדפי**, "
+    "or **לוויתן** + Latin **Humbak** — not nonsense phonetic coinages. "
+    "**Dramatic / serious condition** = **מצב חמור**, **חדשות דרמטיות**, **מאמצי הצלה** — **never** use **חבט חמור** "
+    "(that reads as a physical blow; it is not Polish „dramatyczny”).\n"
     "Polish **MSWiA** = *Ministerstwo Spraw Wewnętrznych i Administracji* (interior + public administration): say "
     "**משרד הפנים והמינהל** in Hebrew, or keep **MSWiA** in Latin after a short Hebrew gloss—**never** output **פקולטה** "
     "(that word means a university faculty; it is a wrong gloss for MSWiA).\n"
@@ -610,7 +760,10 @@ CLASSIFY_PROMPT = (
     "where **Poland is explicitly involved** (named, affected, border, policy position, citizens as the Polish angle).\n"
     "**SKIP** if: sports; or the story **lacks a direct Poland tie** (another country's internal affairs only, generic EU/Brussels desk, "
     "generic foreign-power politics) — **even when a Polish site syndicates it**; or **Hungary-only** rhetoric on Russia sanctions, "
-    "EU energy, or oil pipelines (e.g. Orbán vs Brussels, Przyjaźń) **without Poland named or a Polish policy stake**.\n"
+    "EU energy, or oil pipelines (e.g. Orbán vs Brussels, Przyjaźń) **without Poland named or a Polish policy stake**; "
+    "or **Baltic/German coastal wildlife as long-history culture** (how people centuries ago reacted to whales, church art, general ecology essays) "
+    "with **no current stranding, rescue, death toll, law, or Polish angle**; or a **Baltic-only** whale/dolphin rescue or death wire "
+    "**with no Polish coast, agency, or citizens** in the excerpt.\n"
     "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
     "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision.\n"
     "One word: SKIP or GO."

@@ -19,6 +19,8 @@ from config import (
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
     SYSTEM_PROMPT,
+    baltic_marine_wildlife_no_poland_skip_reason,
+    baltic_wildlife_history_skip_reason,
     crowdfunding_medical_skip_reason,
     entertainment_chat_skip_reason,
     evergreen_culture_skip_reason,
@@ -26,6 +28,8 @@ from config import (
     is_zeit_jahrgang_index_url,
     pan_eu_property_guide_skip_reason,
     rss_teaser_skip_reason,
+    should_skip_baltic_marine_wildlife_without_poland_blob,
+    should_skip_baltic_wildlife_history_teaser,
     should_skip_entertainment_politician_chat_teaser,
     should_skip_evergreen_culture_teaser,
     should_skip_information_poor_rss_teaser,
@@ -180,6 +184,11 @@ def summarize_in_hebrew(
     ):
         return None, evergreen_culture_skip_reason()
 
+    if should_skip_baltic_wildlife_history_teaser(
+        article["title"], article["summary"], article.get("link"),
+    ):
+        return None, baltic_wildlife_history_skip_reason()
+
     if should_skip_entertainment_politician_chat_teaser(
         article["title"], article["summary"], article.get("link"),
     ):
@@ -208,6 +217,18 @@ def summarize_in_hebrew(
         (article["title"] or "") + "\n" + body[:10000]
     ):
         return None, crowdfunding_medical_skip_reason()
+
+    pl_baltic_blob = (
+        (article.get("title") or "")
+        + "\n"
+        + (article.get("summary") or "")
+        + "\n"
+        + (article.get("link") or "")
+        + "\n"
+        + (body or "")[:12000]
+    )
+    if should_skip_baltic_marine_wildlife_without_poland_blob(pl_baltic_blob):
+        return None, baltic_marine_wildlife_no_poland_skip_reason()
 
     decision = classify(client, text)
     if decision == "SKIP":
