@@ -1,11 +1,11 @@
 ---
-description: Active news bots are Poland & Germany only; Cyprus project is retired from routine work.
+description: Active news bots are Poland & Dolnośląsk; Cyprus and other countries are out of routine scope.
 alwaysApply: true
 ---
 
 # News bots — active scope
 
-- **Actively maintain:** **Poland** (`Polish_News` / `polish-news-bot`) and **Germany** (`german-news-bot`).
-- **Do not** plan changes, refactors, tests, deployments, or git pushes for **`cyprus-news-bot`** unless the user **explicitly** asks to touch Cyprus again.
-- If the user mentions a news-bot task without naming a country, assume **Poland and/or Germany** — not Cyprus.
-- Refer to Cyprus code only when the user explicitly needs comparison, migration, or historical context.
+- **Actively maintain:** **Poland** (`Polish_News` / `polish-news-bot`) and **Dolnośląsk** (Lower Silesia — regional coverage and related bots or channels in this workspace).
+- **Do not** plan changes, refactors, tests, deployments, or git pushes for **`cyprus-news-bot`**, **Germany** (`german-news-bot`), **Portugal**, or other country bots unless the user **explicitly** asks to touch them again.
+- If the user mentions a news-bot task without naming a country or region, assume **Poland and/or Dolnośląsk** — not Cyprus, Germany, or Portugal.
+- Refer to retired-region code only when the user explicitly needs comparison, migration, or historical context.
