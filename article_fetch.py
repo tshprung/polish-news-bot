@@ -183,13 +183,17 @@ def _article_body_from_dom(stripped_html: str) -> str:
 
 
 def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> str:
-    paywall_signals = [
-        "zaloguj się",
-        "zarejestruj się",
+    # "zaloguj się" can appear for comments/newsletters and is not necessarily a paywall.
+    # Treat only strong subscription/payment prompts as paywall, and treat login/register as weak.
+    paywall_signals_strong = [
         "prenumerata",
         "subskrypcja",
         "kup dostęp",
         "płatna treść",
+    ]
+    paywall_signals_weak = [
+        "zaloguj się",
+        "zarejestruj się",
     ]
     try:
         headers = {
@@ -207,10 +211,11 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
 
         text = _article_body_from_jsonld(page_html)
         if len(text) >= 200:
-            if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+            text = _trim_boilerplate(text)
+            low = text.lower()
+            if any(s in low for s in paywall_signals_strong) and len(text) < 900:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
-            text = _trim_boilerplate(text)
             log.info(f"Fetched {len(text)} chars (JSON-LD) from {url}")
             return text
 
@@ -223,10 +228,11 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
 
         text = _article_body_from_dom(stripped)
         if len(text) >= 250:
-            if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+            text = _trim_boilerplate(text.strip())
+            low = text.lower()
+            if any(s in low for s in paywall_signals_strong) and len(text) < 900:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
-            text = _trim_boilerplate(text.strip())
             log.info(f"Fetched {len(text)} chars (DOM) from {url}")
             return text
 
@@ -248,10 +254,11 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
             text = extract_paragraphs(article_match.group(1)).strip()
         if len(text) < 300:
             text = extract_paragraphs(stripped).strip()
-        if any(s in text.lower() for s in paywall_signals) and len(text) < 500:
+        text = _trim_boilerplate(text.strip())
+        low = text.lower()
+        if any(s in low for s in paywall_signals_strong) and len(text) < 900:
             log.warning(f"Paywall detected at {url}, ignoring fetched content")
             return ""
-        text = _trim_boilerplate(text.strip())
         log.info(f"Fetched {len(text)} chars from {url}")
         return text
     except Exception as e:
