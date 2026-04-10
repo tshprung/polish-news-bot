@@ -38,11 +38,6 @@ def init_db():
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup_recent_epoch ON dedup_recent(sort_epoch)")
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS weekly_announce_sent ("
-        "iso_week TEXT PRIMARY KEY, "
-        "sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-    )
-    conn.execute(
         "CREATE TABLE IF NOT EXISTS weather_post_rate ("
         "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
         "last_sent_epoch INTEGER NOT NULL)"
@@ -53,7 +48,7 @@ def init_db():
         "last_sent_epoch INTEGER NOT NULL)"
     )
     _migrate_weather_rate_to_channel_limits(conn)
-    conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-7 days')")
+    conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-2 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
     conn.execute("DELETE FROM dedup_recent WHERE sort_epoch < ?", (cutoff,))
     conn.commit()

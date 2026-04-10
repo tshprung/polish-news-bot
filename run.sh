@@ -1,4 +1,7 @@
 #!/bin/bash
+# Schedule with cron: once per hour (Warsaw clock), e.g.
+#   CRON_TZ=Europe/Warsaw
+#   0 * * * * /opt/polish_news/run.sh
 export TZ=Europe/Warsaw
 set -a
 source /opt/polish_news/.env

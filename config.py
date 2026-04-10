@@ -16,30 +16,8 @@ FEEDS = [
     "https://pap-mediaroom.pl/kategoria/biznes-i-finanse/rss.xml",
 ]
 
-# Only ingest RSS items from the last 24 hours.
-MAX_ARTICLE_AGE_HOURS = 24
-
-# Channel posting: legacy = one Telegram message per article with link (default).
-# digest = batch into one or more Telegram messages: Hebrew bullet summaries only (no links).
-# Rollback: git checkout pre-digest-hourly-channel (tag) or set CHANNEL_POSTING_MODE=legacy.
-CHANNEL_POSTING_MODE = os.environ.get("CHANNEL_POSTING_MODE", "legacy").strip().lower()
-# Only articles whose RSS published time falls inside this window (UTC, ending at “now”) are queued
-# for a digest send. Schedule the job hourly for “last hour” behaviour.
-DIGEST_WINDOW_MINUTES = int(os.environ.get("DIGEST_WINDOW_MINUTES", "60"))
-DIGEST_MERGE_MODEL = os.environ.get("DIGEST_MERGE_MODEL", "gpt-4o-mini").strip()
-DIGEST_MAX_MESSAGE_CHARS = int(os.environ.get("DIGEST_MAX_MESSAGE_CHARS", "3800"))
-DIGEST_MERGE_MAX_INPUT_CHARS = int(os.environ.get("DIGEST_MERGE_MAX_INPUT_CHARS", "14000"))
-
-DIGEST_MERGE_SYSTEM_PROMPT = (
-    "You merge Hebrew news lines into a single digest for a Telegram channel about Poland.\n"
-    "Rules:\n"
-    "- Input blocks are separate candidate summaries; several may describe the same developing story.\n"
-    "- Output ONE bullet per distinct story. Merge overlapping/update lines into one richer line—no repetition.\n"
-    "- Hebrew only; Latin letters only for proper names (people, parties, institutions, NATO, etc.).\n"
-    "- No URLs, no outlet names, no 'according to', no publication times.\n"
-    "- Each bullet: one or two short factual sentences (about 220 characters max per bullet).\n"
-    "- Reply with bullet lines only: every line must start with '• ' (bullet + space). No intro or outro.\n"
-)
+# Only ingest RSS items from the last N hours (published time).
+MAX_ARTICLE_AGE_HOURS = int(os.environ.get("MAX_ARTICLE_AGE_HOURS", "48"))
 
 # Longer horizon so same-day beats (wires hours apart) collapse to one post.
 DEDUP_WINDOW_HOURS = 24
@@ -691,18 +669,6 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
-
-# Weekly community message (cron in Europe/Warsaw or set WEEKLY_ANNOUNCE_TZ); Sunday 18:00 default.
-WEEKLY_ANNOUNCE_ENABLED = os.environ.get("WEEKLY_ANNOUNCE_ENABLED", "1") == "1"
-WEEKLY_ANNOUNCE_TZ = os.environ.get("WEEKLY_ANNOUNCE_TZ", "Europe/Warsaw")
-WEEKLY_ANNOUNCE_WEEKDAY = int(os.environ.get("WEEKLY_ANNOUNCE_WEEKDAY", "6"))
-WEEKLY_ANNOUNCE_HOUR = int(os.environ.get("WEEKLY_ANNOUNCE_HOUR", "18"))
-WEEKLY_ANNOUNCE_SUPPORT_EMAIL = os.environ.get(
-    "WEEKLY_ANNOUNCE_SUPPORT_EMAIL", "tshprung@gmail.com"
-)
-WEEKLY_ANNOUNCE_KOFI_URL = os.environ.get(
-    "WEEKLY_ANNOUNCE_KOFI_URL", "https://ko-fi.com/talshprung"
-)
 
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 SYSTEM_PROMPT = (

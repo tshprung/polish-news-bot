@@ -13,9 +13,6 @@ from openai import OpenAI
 from article_fetch import fetch_article_body
 from config import (
     CLASSIFY_PROMPT,
-    DIGEST_MERGE_MAX_INPUT_CHARS,
-    DIGEST_MERGE_MODEL,
-    DIGEST_MERGE_SYSTEM_PROMPT,
     MAX_SUMMARY_WORDS,
     MAX_SUMMARY_WORDS_HARD,
     OPENAI_MAX_RETRIES,
@@ -55,7 +52,6 @@ class _RunTelemetry:
     classify_calls: int = 0
     stage2_calls: int = 0
     stage2_retries: int = 0
-    digest_merge_calls: int = 0
     body_fetched_chars: int = 0
     stage2_input_chars: int = 0
 
@@ -66,21 +62,15 @@ _TEL = _RunTelemetry()
 @atexit.register
 def _log_run_telemetry() -> None:
     # Numeric-only (no article text) so it is safe to keep in logs.
-    if (
-        _TEL.classify_calls == 0
-        and _TEL.stage2_calls == 0
-        and _TEL.digest_merge_calls == 0
-    ):
+    if _TEL.classify_calls == 0 and _TEL.stage2_calls == 0:
         return
     avg_in = (_TEL.stage2_input_chars / _TEL.stage2_calls) if _TEL.stage2_calls else 0.0
     avg_body = (_TEL.body_fetched_chars / _TEL.classify_calls) if _TEL.classify_calls else 0.0
     log.info(
-        "OpenAI telemetry: classify_calls=%d stage2_calls=%d stage2_retries=%d "
-        "digest_merge_calls=%d avg_stage2_input_chars=%.0f avg_body_chars=%.0f",
+        "OpenAI telemetry: classify_calls=%d stage2_calls=%d stage2_retries=%d avg_stage2_input_chars=%.0f avg_body_chars=%.0f",
         _TEL.classify_calls,
         _TEL.stage2_calls,
         _TEL.stage2_retries,
-        _TEL.digest_merge_calls,
         avg_in,
         avg_body,
     )
@@ -396,63 +386,6 @@ def summarize_in_hebrew(
         return None, "empty after stripping erroneous Israel prefix"
 
     return result, None
-
-
-def _parse_digest_merge_lines(text: str) -> list[str]:
-    out: list[str] = []
-    for line in (text or "").splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        if s.startswith("•"):
-            s = s[1:].strip()
-        elif s.startswith("-") and len(s) > 1 and s[1] in " \t":
-            s = s[1:].strip()
-        if s:
-            out.append(s)
-    return out
-
-
-def merge_digest_bullets(client: OpenAI, items: list[dict]) -> list[str]:
-    """
-    Merge overlapping Hebrew summary lines into distinct digest bullets.
-    items: dicts with keys 'hebrew' (required) and optional 'title' for context.
-    """
-    if not items:
-        return []
-    if len(items) == 1:
-        return [items[0].get("hebrew", "").strip()]
-
-    blocks: list[str] = []
-    for i, it in enumerate(items, 1):
-        title = ((it.get("title") or "")[:160]).strip()
-        heb = (it.get("hebrew") or "").strip()
-        blocks.append(f"[{i}] {title}\n{heb}")
-    blob = "\n\n".join(blocks)
-    if len(blob) > int(DIGEST_MERGE_MAX_INPUT_CHARS):
-        blob = blob[: int(DIGEST_MERGE_MAX_INPUT_CHARS)].rstrip() + "\n…"
-
-    _TEL.digest_merge_calls += 1
-    try:
-        response = client.chat.completions.create(
-            model=DIGEST_MERGE_MODEL,
-            max_tokens=1800,
-            messages=[
-                {"role": "system", "content": DIGEST_MERGE_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Candidate lines to merge:\n\n{blob}"},
-            ],
-        )
-    except Exception as e:
-        log.warning("Digest merge API error (%s); using unmerged bullets", e)
-        return [it.get("hebrew", "").strip() for it in items if (it.get("hebrew") or "").strip()]
-
-    result = (response.choices[0].message.content or "").strip()
-    parsed = _parse_digest_merge_lines(result)
-    if not parsed:
-        log.warning("Digest merge returned no bullets; using unmerged lines")
-        return [it.get("hebrew", "").strip() for it in items if (it.get("hebrew") or "").strip()]
-
-    return parsed
 
 
 def openai_client() -> OpenAI:
