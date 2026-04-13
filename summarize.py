@@ -27,6 +27,8 @@ from config import (
     entertainment_chat_skip_reason,
     evergreen_culture_skip_reason,
     fold_pl,
+    hebrew_scope_meta_disclaimer_skip_reason,
+    hebrew_summary_is_scope_meta_disclaimer,
     is_zeit_jahrgang_index_url,
     pan_eu_property_guide_skip_reason,
     rss_teaser_skip_reason,
@@ -384,6 +386,9 @@ def summarize_in_hebrew(
     result = _strip_erroneous_israel_subject_prefix(result, text)
     if not result:
         return None, "empty after stripping erroneous Israel prefix"
+
+    if hebrew_summary_is_scope_meta_disclaimer(result):
+        return None, hebrew_scope_meta_disclaimer_skip_reason()
 
     return result, None
 

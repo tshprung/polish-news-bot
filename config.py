@@ -227,6 +227,35 @@ def skip_admin_notify_for_article(article: dict | None, reason: str | None = Non
     link = (article or {}).get("link")
     return bool(is_zeit_jahrgang_index_url(link))
 
+
+# Stage 2 sometimes echoes channel-fit meta instead of SKIP — block posting.
+_SCOPE_DISCLAIMER_HE = re.compile(
+    r"(?is)"
+    r"אין\s+מעורבות\s+פולנית"
+    r"|ללא\s+מעורבות\s+פולנית"
+    r"|אין\s+קשר\s+ישיר\s+לפולין"
+    r"|אין\s+זיקה\s+ישירה\s+לפולין"
+    r"|ללא\s+קשר\s+ישיר\s+לפולין"
+    r"|ללא\s+זיקה\s+ישירה\s+לפולין"
+    r"|אין\s+במאמר\s+מעורבות\s+פולנית"
+    r"|המאמר\s+אינו\s+עוסק\s+בפולין"
+    r"|הכתבה\s+אינה\s+עוסקת\s+בפולין"
+    r"|מעורבות\s+פולנית\s+ישירה\s+במידע"
+    r"|במידע\s+המסופק[^\n.]{0,80}(?:אין|ללא)[^\n.]{0,40}פולנית"
+)
+
+
+def hebrew_scope_meta_disclaimer_skip_reason() -> str:
+    return "Hebrew output: Poland-scope meta-disclaimer (not a news summary)"
+
+
+def hebrew_summary_is_scope_meta_disclaimer(text: str) -> bool:
+    t = unicodedata.normalize("NFC", (text or "").strip())
+    if not t:
+        return False
+    return bool(_SCOPE_DISCLAIMER_HE.search(t))
+
+
 # Interview / lifestyle teasers that name a person and invite a click but state no event, figure, or decision.
 _RSS_TEASER_SOFT_PROFILE = re.compile(
     r"(?is)"
@@ -743,6 +772,9 @@ SYSTEM_PROMPT = (
     "If you output two sentences, both must describe this article only—never mix the main story with unrelated 'see also' "
     "or sidebar headlines. "
     "If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
+    "Hebrew must state **concrete facts** from the article (who did what, where, when). **Never** output a line that only says there is "
+    "**no direct Polish involvement**, no Poland tie, or that the supplied information does not concern Poland—such channel-fit meta "
+    "belongs in **SKIP** (classifier) or **INSUFFICIENT**, not as the post text.\n"
     "Diplomacy and foreign policy: **GO** only when Poland is explicitly in the story (Polish MFA, Sejm, government position, "
     "US ambassador **in Poland**, eastern flank **for PL**, EU row **naming Poland**). "
     "If other countries' officials debate among themselves and Poland never appears—SKIP, not Hebrew. "
