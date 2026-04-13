@@ -13,6 +13,8 @@ _BAD_DEFAULT_ENCODINGS = frozenset({"iso-8859-1", "windows-1252"})
 # Keep fetch results bounded: stage2 will truncate again, but capping here reduces prompt bloat,
 # speeds classify, and reduces retries driven by noisy boilerplate.
 _MAX_BODY_CHARS = 8000
+# After JSON-LD/DOM extraction, boilerplate trim can wipe noisy wires; fall back to DOM/paragraphs if this small.
+_MIN_USEFUL_BODY_CHARS = 120
 
 
 def _trim_boilerplate(text: str) -> str:
@@ -211,13 +213,20 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
 
         text = _article_body_from_jsonld(page_html)
         if len(text) >= 200:
-            text = _trim_boilerplate(text)
-            low = text.lower()
-            if any(s in low for s in paywall_signals_strong) and len(text) < 900:
+            trimmed = _trim_boilerplate(text)
+            low = trimmed.lower()
+            if any(s in low for s in paywall_signals_strong) and len(trimmed) < 900:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
-            log.info(f"Fetched {len(text)} chars (JSON-LD) from {url}")
-            return text
+            if len(trimmed) >= _MIN_USEFUL_BODY_CHARS:
+                log.info(f"Fetched {len(trimmed)} chars (JSON-LD) from {url}")
+                return trimmed
+            log.info(
+                "JSON-LD trimmed to %d chars (below %d); trying DOM fallback for %s",
+                len(trimmed),
+                _MIN_USEFUL_BODY_CHARS,
+                url,
+            )
 
         stripped = re.sub(
             r"<script\b[^>]*>.*?</script>", " ", page_html, flags=re.DOTALL | re.IGNORECASE
@@ -228,13 +237,19 @@ def fetch_article_body(session: requests.Session, url: str, timeout: tuple) -> s
 
         text = _article_body_from_dom(stripped)
         if len(text) >= 250:
-            text = _trim_boilerplate(text.strip())
-            low = text.lower()
-            if any(s in low for s in paywall_signals_strong) and len(text) < 900:
+            trimmed = _trim_boilerplate(text.strip())
+            low = trimmed.lower()
+            if any(s in low for s in paywall_signals_strong) and len(trimmed) < 900:
                 log.warning(f"Paywall detected at {url}, ignoring fetched content")
                 return ""
-            log.info(f"Fetched {len(text)} chars (DOM) from {url}")
-            return text
+            if len(trimmed) >= _MIN_USEFUL_BODY_CHARS:
+                log.info(f"Fetched {len(trimmed)} chars (DOM) from {url}")
+                return trimmed
+            log.info(
+                "Primary DOM trimmed to %d chars; trying paragraph fallback for %s",
+                len(trimmed),
+                url,
+            )
 
         def extract_paragraphs(source):
             paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", source, re.DOTALL)
