@@ -206,10 +206,49 @@ def zeit_jahrgang_index_skip_reason() -> str:
     return "rss teaser: ZEIT year hub (zeit.de/2026)"
 
 
+def hebrew_scope_meta_summary_skip_reason() -> str:
+    """Stage 2 sometimes echoes 'no Poland tie' as the whole Hebrew line instead of SKIP."""
+    return "scope meta: Hebrew line only states missing Poland angle (should be SKIP)"
+
+
+def should_reject_hebrew_scope_meta_summary(hebrew: str) -> bool:
+    """
+    Reject short meta-summaries that describe channel scope instead of reporting facts.
+    Example (seen on channel): 'אין מעורבות פולנית ישירה במידע המסופק.'
+    """
+    t = (hebrew or "").strip()
+    if len(t) > 260:
+        return False
+    needles = (
+        "אין מעורבות פולנית",
+        "אין מעורבות ישירה של פולין",
+        "אין קשר ישיר לפולין",
+        "אין קשר ישיר לפולנים",
+        "ללא מעורבות פולנית",
+        "ללא קשר ישיר לפולין",
+        "אינה עוסקת בפולין",
+        "אינו עוסק בפולין",
+        "לא עוסקת בפולין",
+        "לא עוסק בפולין",
+        "ללא זיקה לפולין",
+        "אין זיקה לפולין",
+        "חסר קשר לפולין",
+        "ללא קשר לפולין",
+    )
+    for n in needles:
+        if n in t:
+            return True
+    if "מידע המסופק" in t and len(t) < 280:
+        if re.search(r"(?:אין|ללא|חסר)\s+.+(?:פולין|פולנית|פולנים)", t):
+            return True
+    return False
+
+
 # Admin DM noise: main.py skips Telegram notify when skip_reason starts with any of these prefixes.
 SKIP_NOTIFY_EXEMPT_PREFIXES = (
     "rss teaser:",
     "pan-eu guide:",
+    "scope meta:",
 )
 
 
@@ -226,35 +265,6 @@ def skip_admin_notify_for_article(article: dict | None, reason: str | None = Non
         return True
     link = (article or {}).get("link")
     return bool(is_zeit_jahrgang_index_url(link))
-
-
-# Stage 2 sometimes echoes channel-fit meta instead of SKIP — block posting.
-_SCOPE_DISCLAIMER_HE = re.compile(
-    r"(?is)"
-    r"אין\s+מעורבות\s+פולנית"
-    r"|ללא\s+מעורבות\s+פולנית"
-    r"|אין\s+קשר\s+ישיר\s+לפולין"
-    r"|אין\s+זיקה\s+ישירה\s+לפולין"
-    r"|ללא\s+קשר\s+ישיר\s+לפולין"
-    r"|ללא\s+זיקה\s+ישירה\s+לפולין"
-    r"|אין\s+במאמר\s+מעורבות\s+פולנית"
-    r"|המאמר\s+אינו\s+עוסק\s+בפולין"
-    r"|הכתבה\s+אינה\s+עוסקת\s+בפולין"
-    r"|מעורבות\s+פולנית\s+ישירה\s+במידע"
-    r"|במידע\s+המסופק[^\n.]{0,80}(?:אין|ללא)[^\n.]{0,40}פולנית"
-)
-
-
-def hebrew_scope_meta_disclaimer_skip_reason() -> str:
-    return "Hebrew output: Poland-scope meta-disclaimer (not a news summary)"
-
-
-def hebrew_summary_is_scope_meta_disclaimer(text: str) -> bool:
-    t = unicodedata.normalize("NFC", (text or "").strip())
-    if not t:
-        return False
-    return bool(_SCOPE_DISCLAIMER_HE.search(t))
-
 
 # Interview / lifestyle teasers that name a person and invite a click but state no event, figure, or decision.
 _RSS_TEASER_SOFT_PROFILE = re.compile(
@@ -772,13 +782,12 @@ SYSTEM_PROMPT = (
     "If you output two sentences, both must describe this article only—never mix the main story with unrelated 'see also' "
     "or sidebar headlines. "
     "If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
-    "Hebrew must state **concrete facts** from the article (who did what, where, when). **Never** output a line that only says there is "
-    "**no direct Polish involvement**, no Poland tie, or that the supplied information does not concern Poland—such channel-fit meta "
-    "belongs in **SKIP** (classifier) or **INSUFFICIENT**, not as the post text.\n"
     "Diplomacy and foreign policy: **GO** only when Poland is explicitly in the story (Polish MFA, Sejm, government position, "
     "US ambassador **in Poland**, eastern flank **for PL**, EU row **naming Poland**). "
     "If other countries' officials debate among themselves and Poland never appears—SKIP, not Hebrew. "
-    "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n\n"
+    "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n"
+    "**Never** answer with Hebrew that **only** says there is no Polish involvement, no direct Poland tie, or that the supplied text "
+    "does not concern Poland—that is **not** a channel summary; reply **SKIP** (one word) so the item is dropped.\n\n"
     f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
 )
 
