@@ -7,6 +7,7 @@ from openai import OpenAI
 from config import (
     ADMIN_TELEGRAM_ID,
     FUEL_TOURISM_POST_MIN_INTERVAL_SEC,
+    TELEGRAM_LINK_PREVIEW_ENABLED,
     SPORTS_KEYWORDS,
     TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC,
     WEATHER_POST_MIN_INTERVAL_SEC,
@@ -140,6 +141,8 @@ def main():
             body = html.escape(hebrew, quote=False)
             footer_label = f"{article['source']} | {article['date']}"
             message = f"{body}\n\n{telegram_html_anchor(article['link'], footer_label)}"
+            if TELEGRAM_LINK_PREVIEW_ENABLED:
+                message = f"{message}\n{article['link']}"
             send_to_telegram(session, message, timeout=to)
             conn.execute(
                 "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)

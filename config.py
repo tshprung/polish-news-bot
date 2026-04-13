@@ -709,6 +709,9 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ADMIN_TELEGRAM_ID = os.environ.get("ADMIN_TELEGRAM_ID")
 DB_PATH = Path(os.environ.get("DB_PATH", "/opt/polish_news/seen.db"))
 
+# Append raw article URL so Telegram can build link preview (og:image); HTML <a> alone often has no preview.
+TELEGRAM_LINK_PREVIEW_ENABLED = os.environ.get("TELEGRAM_LINK_PREVIEW_ENABLED", "1") == "1"
+
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
 SYSTEM_PROMPT = (
     "Hebrew Telegram blurbs from Polish media. Readers: Hebrew speakers in Poland; national news; keep Polish context. "

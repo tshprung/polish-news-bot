@@ -20,7 +20,12 @@ def send_to_telegram(session: requests.Session, message, chat_id=None, timeout: 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     resp = session.post(
         url,
-        json={"chat_id": chat_id or CHANNEL_ID, "text": message, "parse_mode": "HTML"},
+        json={
+            "chat_id": chat_id or CHANNEL_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+        },
         timeout=timeout,
     )
     try:
