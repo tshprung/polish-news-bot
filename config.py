@@ -776,6 +776,7 @@ SYSTEM_PROMPT = (
     "or **לוויתן** + Latin **Humbak** — not nonsense phonetic coinages. "
     "**Dramatic / serious condition** = **מצב חמור**, **חדשות דרמטיות**, **מאמצי הצלה** — **never** use **חבט חמור** "
     "(that reads as a physical blow; it is not Polish „dramatyczny”).\n"
+    "Polish titles: **wiceminister** / **wice-** = **סגן שר** (deputy minister). Do not transliterate it as 'וויצה'.\n"
     "Polish **MSWiA** = *Ministerstwo Spraw Wewnętrznych i Administracji* (interior + public administration): say "
     "**משרד הפנים והמינהל** in Hebrew, or keep **MSWiA** in Latin after a short Hebrew gloss—**never** output **פקולטה** "
     "(that word means a university faculty; it is a wrong gloss for MSWiA).\n"

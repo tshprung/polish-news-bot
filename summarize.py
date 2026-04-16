@@ -92,6 +92,7 @@ def _sanitize_hebrew_summary_line(result: str) -> str:
     return _SANITIZE_HB_LINE.sub("", html.unescape(result)).strip()
 
 _LEADING_LABEL_PATTERNS = (
+    r"^העברית\s*:\s*",
     r"^עברית\s*:\s*",
     r"^תרגום\s*:\s*",
     r"^סיכום\s*:\s*",
