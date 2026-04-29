@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+from config import public_opinion_poll_skip_reason
 from summarize import summarize_in_hebrew
 
 
@@ -119,32 +120,26 @@ def test_hebrew_summary_after_two_insufficient_retries(monkeypatch):
     assert client.chat.completions.create.call_count == 3
 
 
-def test_wp_poll_latin_only_then_hebrew_retry(monkeypatch):
-    """Regression: Stage 2 sometimes returns English-only (sondaż / names); must retry with Hebrew note."""
-    pl_body = (
-        "Sondaż WP wykazał, że większość Polaków pozytywnie oceniła spotkanie "
-        "Karola Nawrockiego z Viktorem Orbánem; metodologia badania w treści."
-    )
-    monkeypatch.setattr("summarize.fetch_article_body", lambda *_a, **_k: pl_body)
+def test_wp_sondaz_skipped_before_llm(monkeypatch):
+    """Opinion polls (sondaż / what Poles think) are dropped before classify + stage 2."""
+    calls = {"fetch": 0}
+
+    def _fetch(*_a, **_k):
+        calls["fetch"] += 1
+        return "body"
+
+    monkeypatch.setattr("summarize.fetch_article_body", _fetch)
     article = {
         "link": "https://wiadomosci.wp.pl/sondaz-wp-polacy-ocenili-spotkanie-nawrockiego-z-orbanem-7270877297015008a",
         "title": "Sondaż WP. Polacy ocenili spotkanie Nawrockiego z Orbánem",
         "summary": "",
     }
-    latin_only = (
-        "A WP survey found most Poles rated Karol Nawrocki's meeting with Viktor Orbán positively; "
-        "methodology is described in the article body."
-    )
-    hebrew = (
-        "סקר של WP מצא כי רוב הפולנים העריכו בחיוב את פגישת נברוקי עם אורבן; "
-        "שיטת האיסוף מתוארת בגוף הכתבה."
-    )
-    client = _client_with_responses("GO", latin_only, hebrew)
+    client = _client_with_responses("GO", "should not run", "should not run")
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
-    assert reason is None
-    assert out is not None
-    assert "סקר" in out or "נברוקי" in out
-    assert client.chat.completions.create.call_count == 3
+    assert out is None
+    assert reason == public_opinion_poll_skip_reason()
+    assert calls["fetch"] == 0
+    assert client.chat.completions.create.call_count == 0
 
 
 def test_warsaw_source_geo_mismatch_still_skips(monkeypatch):

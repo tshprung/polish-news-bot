@@ -57,6 +57,7 @@ _TOPIC_DEDUP_TAGS = frozenset({
     "#de_reiche_fuel_policy",
     "#pl_tk_judge_oath_row",
     "#poznan_infant_abuse_beat",
+    "#pl_by_poczobut_release",
 })
 # Shared topic tag alone is too loose; require this many overlapping non-tag tokens too.
 TOPIC_DEDUP_MIN_LEXICAL = 2
@@ -137,6 +138,74 @@ def should_skip_ultra_short_rss_item(title: str | None, summary: str | None) -> 
 
 def ultra_short_rss_skip_reason() -> str:
     return "rss teaser: too short to summarize (skip to save tokens)"
+
+
+# Opinion polls / “what Poles think” + percentages — not hard news for this channel.
+_POLLSTER_NAMES = (
+    r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united\s+surveys|\bsocjogram\b|sw\s+research)"
+)
+_PUBLIC_OPINION_POLL = re.compile(
+    r"(?is)"
+    r"(?:"
+    # Polish media almost always labels these as sondaż(e) / sondażowy.
+    r"\bsondaz\w*"
+    r"|"
+    r"badan\w{0,14}\s+opinii"
+    r"|"
+    r"badan\w{0,14}\s+spoleczn"
+    r"|"
+    # Pollster + voting intention / approval language or a headline share.
+    r"(?:"
+    + _POLLSTER_NAMES
+    + r")"
+    r".{0,420}?"
+    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b)|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*))"
+    r"|"
+    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b))"
+    r".{0,320}?"
+    r"(?:"
+    + _POLLSTER_NAMES
+    + r")"
+    r"|"
+    # Survey wording + Poles/electors + a headline figure.
+    r"\bankiet\w*"
+    r".{0,140}?"
+    r"(?:polak\w*|wyborc\w*|mieszkanc\w*)"
+    r".{0,140}?"
+    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b)|popier|nie\s*popier)"
+    r"|"
+    # Outlets often bury "sondaż" in the body; these phrases are strong voting-intention / fieldwork signals.
+    r"\bgdyby\s+wybory\b"
+    r"|"
+    r"\b(?:prognoz\w{0,16}\s+wyborcz\w*|symulacj\w{0,16}\s+wyborcz\w*)\b"
+    r"|"
+    r"\bpoparcie\s+partyjn\w*"
+    r"|"
+    r"\bnotowan\w{0,14}\s+partyjn\w*"
+    r"|"
+    r"\bprzebadan\w{0,18}\s+\d{3,5}\s+osob\b"
+    r")",
+)
+
+
+def should_skip_public_opinion_poll_blob(blob: str) -> bool:
+    """True for public-opinion polls / surveys (Poles’ views + percentages), title/summary or longer excerpt."""
+    raw = (blob or "").strip()
+    if len(raw) < 28:
+        return False
+    f = fold_pl(unicodedata.normalize("NFC", raw))
+    return bool(_PUBLIC_OPINION_POLL.search(f))
+
+
+def should_skip_public_opinion_poll_teaser(title: str, summary: str) -> bool:
+    return should_skip_public_opinion_poll_blob(
+        f"{(title or '').strip()}\n{(summary or '').strip()}"
+    )
+
+
+def public_opinion_poll_skip_reason() -> str:
+    return "rss teaser: public opinion poll / survey (Poles’ percentages)"
+
 
 # Lifestyle listicles, coupon/shopping wire copy, and obvious advertorial markers (any language in feeds).
 _COMMERCIAL_CLICKBAIT = re.compile(
@@ -754,6 +823,7 @@ SYSTEM_PROMPT = (
     "SKIP - weather micro-updates: keep only major warnings/extremes or rate-limited forecast beats.\n"
     "SKIP - markets daily churn (crypto/stock up-down today) unless there is a concrete enforcement/regulatory decision, major platform outage, "
     "or clear Poland impact.\n"
+    "SKIP - opinion polls / surveys (sondaż, CBOS/IBRiS/Kantar-style headlines, “what share of Poles think”) without a binding vote outcome, law, or investigation as the news.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
@@ -809,7 +879,8 @@ CLASSIFY_PROMPT = (
     "with **no current stranding, rescue, death toll, law, or Polish angle**; or a **Baltic-only** whale/dolphin rescue or death wire "
     "**with no Polish coast, agency, or citizens** in the excerpt.\n"
     "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
-    "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision.\n"
+    "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision; "
+    "or **opinion polls / surveys** (sondaż, CBOS-style institutes, “what % of Poles think”) rather than a dated decision or event.\n"
     "One word: SKIP or GO."
 )
 

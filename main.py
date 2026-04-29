@@ -30,7 +30,9 @@ from dedup import (
     article_is_pl_tk_judge_oath_beat,
     article_is_pl_weather_forecast_beat,
     deduplicate,
+    load_dedup_snapshots,
     record_sent_snapshot,
+    topic_cooldown_filter,
 )
 from http_util import make_http_session, request_timeout
 from summarize import openai_client, summarize_in_hebrew
@@ -56,6 +58,16 @@ def main():
     new_articles.sort(key=lambda a: a["sort_key"])
     new_articles = deduplicate(conn, new_articles)
     log.info(f"Found {len(new_articles)} new articles after deduplication")
+
+    # Topic-level cooldown: if a topic was already sent in the last 24h, suppress updates.
+    # Uses only already-sent snapshots (dedup_recent) + earlier items in this run.
+    prior_sent = load_dedup_snapshots(conn, 24)
+    new_articles, cooled = topic_cooldown_filter(prior_sent, new_articles, window_hours=24)
+    for a, reason in cooled:
+        log.info("Skipped (topic cooldown 24h, %s): %s", reason, a["title"][:70])
+        conn.execute("INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (a["id"],))
+    conn.commit()
+    log.info(f"{len(new_articles)} remain after topic cooldown")
 
     for article in new_articles:
         try:

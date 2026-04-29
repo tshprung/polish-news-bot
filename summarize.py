@@ -31,6 +31,7 @@ from config import (
     is_zeit_jahrgang_index_url,
     should_reject_hebrew_scope_meta_summary,
     pan_eu_property_guide_skip_reason,
+    public_opinion_poll_skip_reason,
     rss_teaser_skip_reason,
     should_skip_baltic_marine_wildlife_without_poland_blob,
     should_skip_baltic_wildlife_history_teaser,
@@ -40,6 +41,8 @@ from config import (
     should_skip_pan_eu_generic_property_guide,
     should_skip_private_medical_fundraiser_blob,
     should_skip_private_medical_fundraiser_teaser,
+    should_skip_public_opinion_poll_blob,
+    should_skip_public_opinion_poll_teaser,
     should_skip_ultra_short_rss_item,
     ultra_short_rss_skip_reason,
     zeit_jahrgang_index_skip_reason,
@@ -181,6 +184,9 @@ def summarize_in_hebrew(
     if should_skip_ultra_short_rss_item(article.get("title"), article.get("summary")):
         return None, ultra_short_rss_skip_reason()
 
+    if should_skip_public_opinion_poll_teaser(article.get("title"), article.get("summary")):
+        return None, public_opinion_poll_skip_reason()
+
     if should_skip_information_poor_rss_teaser(article["title"], article["summary"]):
         return None, rss_teaser_skip_reason()
 
@@ -217,6 +223,15 @@ def summarize_in_hebrew(
         _TEL.body_fetched_chars += len(body)
     text = (article["title"] + ". " + body) if body else rss_text
     body_available = bool(body)
+
+    if should_skip_public_opinion_poll_blob(
+        (article.get("title") or "")
+        + "\n"
+        + (article.get("summary") or "")
+        + "\n"
+        + (body or "")[:12000],
+    ):
+        return None, public_opinion_poll_skip_reason()
 
     if body and should_skip_private_medical_fundraiser_blob(
         (article["title"] or "") + "\n" + body[:10000]

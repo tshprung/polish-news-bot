@@ -8,6 +8,8 @@ from dedup import (
     deduplicate,
     load_dedup_snapshots,
     record_sent_snapshot,
+    tokens_from_blob,
+    topic_cooldown_filter,
 )
 
 
@@ -176,6 +178,106 @@ def test_load_dedup_snapshots_respects_window():
     rows = load_dedup_snapshots(conn, DEDUP_WINDOW_HOURS)
     ids = {r["id"] for r in rows}
     assert "old" not in ids
+
+
+def test_topic_cooldown_blocks_updates_within_24h():
+    """
+    If we already *sent* something on a topic within 24h, suppress further "updates"
+    even when they are not strict near-duplicates.
+    """
+    conn = _memory_conn()
+    now = datetime.now(timezone.utc)
+
+    sent = _article(
+        "Zondacrypto na krawędzi: prokuratura bada giełdę",
+        "Śledztwo w Katowicach, podejrzenia prania pieniędzy.",
+        "sent-zonda",
+        sort=now - timedelta(hours=10),
+    )
+    record_sent_snapshot(conn, sent)
+    conn.commit()
+
+    update = _article(
+        "Weto Nawrockiego wiązało prawicę z kryptowalutami. Nowa propozycja po upadku Zondacrypto",
+        "Tekst opinii o kosztach politycznych i projekcie Polski 2050.",
+        "new-zonda",
+        sort=now,
+    )
+
+    prior = load_dedup_snapshots(conn, 24)
+    kept, dropped = topic_cooldown_filter(prior, [update], window_hours=24)
+    assert kept == []
+    assert len(dropped) == 1
+    assert dropped[0][0]["id"] == "new-zonda"
+
+
+def test_poczobut_belarus_release_topic_tag_merges_mult_outlet_wires():
+    """Health interview vs diplomacy angle: same #pl_by_poczobut_release, no shared long anchors."""
+    w = timedelta(hours=8)
+    health_wire = _article(
+        "Wywiad o zdrowiu Poczobuta po powrocie z więzienia na Białorusi",
+        "Dziennikarz GW pytał o samopoczucie po latach za kratkami.",
+        "pocz-1",
+    )
+    dip_wire = _article(
+        "Tusk: amerykańska rola kluczowa przy uwolnieniu Poczobuta",
+        "Sukces służb i diplomacji po dwóch latach rozmów z Mińskiem i USA.",
+        "pocz-2",
+    )
+    dup, detail = _is_near_duplicate(dip_wire, health_wire, w)
+    assert dup is True
+    assert "topic-tag" in detail
+    assert "pl_by_poczobut" in detail
+
+
+def test_poczobut_release_topic_cooldown_within_24h_after_send():
+    conn = _memory_conn()
+    now = datetime.now(timezone.utc)
+    sent = _article(
+        "Poczobut w domu. Białoruś zwolniła dziennikarza",
+        "Komunikat MSZ i pierwsze słowa rodziny.",
+        "sent-pocz",
+        sort=now - timedelta(hours=2),
+    )
+    record_sent_snapshot(conn, sent)
+    conn.commit()
+    follow = _article(
+        "Polsko-amerykański wątek w historii uwolnienia Poczobuta",
+        "Tusk dziękuje Trumpowi; detale wymiany osób.",
+        "new-pocz",
+        sort=now,
+    )
+    prior = load_dedup_snapshots(conn, 24)
+    kept, dropped = topic_cooldown_filter(prior, [follow], window_hours=24)
+    assert kept == []
+    assert len(dropped) == 1
+    assert dropped[0][0]["id"] == "new-pocz"
+    assert "pl_by_poczobut" in dropped[0][1]
+
+
+def test_deduplicate_same_run_keeps_one_poczobut_wire():
+    conn = _memory_conn()
+    now = datetime.now(timezone.utc)
+    first = _article(
+        "Poczobut opisał warunki w więzieniu na Białorusi",
+        "TVN24 pierwszy publikuje relację.",
+        "pocz-a",
+        sort=now,
+    )
+    second = _article(
+        "Donald Tusk podkreśla wagę USA przy uwolnieniu Poczobuta",
+        "Wspólna operacja z Rumunią i Mołdawią.",
+        "pocz-b",
+        sort=now + timedelta(minutes=5),
+    )
+    kept = deduplicate(conn, [first, second])
+    assert len(kept) == 1
+    assert kept[0]["id"] == "pocz-a"
+
+
+def test_belarus_prison_without_poczobut_name_has_no_release_tag():
+    blob = "Inny więzień polityczny na Białorusi nadal w areszcie"
+    assert "#pl_by_poczobut_release" not in tokens_from_blob(blob)
 
 
 def test_de_reiche_fuel_welt_bild_hebrew_summaries_merge():

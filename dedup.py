@@ -27,6 +27,36 @@ from config import (
 
 log = logging.getLogger(__name__)
 
+_GENERIC_ANCHORS = frozenset(
+    fold_pl(x)
+    for x in (
+        # Avoid suppressing unrelated stories that share only generic institutions/verbs.
+        "prokuratura",
+        "sledztwo",
+        "sledztwa",
+        "policja",
+        "sad",
+        "sejm",
+        "rzad",
+        "ustawa",
+        "ustawy",
+        "weto",
+        "prezydent",
+        "minister",
+        "partia",
+        "posel",
+        "poslowie",
+        "biznes",
+        "firma",
+        "spolka",
+        "pieniadze",
+        "podatki",
+        "kryzys",
+        "afera",
+        "skandal",
+    )
+)
+
 
 def _dedup_word_shape(wf: str) -> str:
     if not wf.isalpha():
@@ -221,6 +251,18 @@ def tokens_from_blob(blob: str) -> set:
     ):
         out.add("#poznan_infant_abuse_beat")
 
+    # Andrzej Poczobut — Belarus political prisoner / release beat (many outlets, same day).
+    if re.search(r"poczobut", bf) and re.search(
+        r"(?:"
+        r"bialorus|bialorusi|minsk|lukaszen|"
+        r"wiezien|wiezni|areszt|uwoln|zwoln|wypuszcz|wolnosci|na\s+wolnos"
+        r"|wymian\w{0,14}\s+wiezni|wymian\w{0,14}\s+osob"
+        r"|בלארוס|בלרוס|לוקשנקו|כלא|שיחרור|פוצובוט|פוצ'ובוט"
+        r")",
+        bf,
+    ):
+        out.add("#pl_by_poczobut_release")
+
     return out
 
 
@@ -230,6 +272,119 @@ def content_tokens(article):
         f"{(article.get('link') or '')}"
     )
     return tokens_from_blob(blob)
+
+
+def topic_anchors_from_blob(blob: str) -> set:
+    """
+    Extract "topic anchors" meant for 24h cooldown (looser than near-dup).
+
+    We keep longer alpha tokens (names, orgs, distinctive nouns) and drop:
+    - stopwords
+    - very short tokens
+    - generic news/legal/politics terms that would cause false "same topic"
+    """
+    blob_n = unicodedata.normalize("NFC", (blob or "").lower())
+    words = re.findall(r"[\w]+", blob_n)
+    out = set()
+    for w in words:
+        folded = fold_pl(w)
+        if not folded or not folded.isalpha():
+            continue
+        if len(folded) < 6:
+            continue
+        if folded in POLISH_STOPWORDS:
+            continue
+        if folded in _GENERIC_ANCHORS:
+            continue
+        out.add(folded)
+    return out
+
+
+def topic_anchors(article: dict) -> set:
+    blob = f"{article.get('title', '')} {(article.get('summary') or '')}"
+    return topic_anchors_from_blob(blob)
+
+
+def _topic_tag_dedup_min_lex(shared_topics: set) -> int:
+    """Minimum non-tag token overlap for a near-dup / topic-cooldown hit when these #tags intersect."""
+    if "#pl_weather_forecast" in shared_topics:
+        return TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+    if "#baltic_whale_stranding" in shared_topics:
+        return TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+    if "#de_reiche_fuel_policy" in shared_topics:
+        return TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+    if "#pl_tk_judge_oath_row" in shared_topics:
+        return 0
+    if "#poznan_infant_abuse_beat" in shared_topics:
+        return TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+    if "#pl_by_poczobut_release" in shared_topics:
+        return 0
+    return TOPIC_DEDUP_MIN_LEXICAL
+
+
+def _topic_cooldown_hit(article: dict, seen: dict, window: timedelta) -> tuple[bool, str]:
+    """
+    True when an earlier *sent* item likely covered the same topic within the window.
+
+    This is intentionally looser than _is_near_duplicate: it is meant to prevent
+    "updates" on the same story from being posted again within 24h.
+    """
+    dt = abs((article["sort_key"] - seen["sort_key"]).total_seconds())
+    if dt > window.total_seconds():
+        return False, ""
+
+    ca, cs = content_tokens(article), content_tokens(seen)
+    shared_topics = (ca & cs) & _TOPIC_DEDUP_TAGS
+    if shared_topics:
+        min_lex = _topic_tag_dedup_min_lex(shared_topics)
+        if _lexical_token_overlap(ca, cs) >= min_lex:
+            tag = ",".join(sorted(shared_topics))
+            return True, f"topic-tag {tag}"
+
+    a = topic_anchors(article)
+    b = topic_anchors(seen)
+    if not a or not b:
+        return False, ""
+
+    inter = a & b
+    if not inter:
+        return False, ""
+
+    # One very distinctive shared anchor (e.g., Zondacrypto) is enough.
+    longest = max((len(x) for x in inter), default=0)
+    if longest >= 9:
+        return True, f"topic-anchor '{sorted(inter, key=len, reverse=True)[0]}'"
+
+    # Otherwise require at least two shared anchors to reduce flukes.
+    if len(inter) >= 2:
+        tops = ", ".join(sorted(inter)[:3])
+        return True, f"topic-anchors {tops}"
+
+    return False, ""
+
+
+def topic_cooldown_filter(sent_snapshots: list[dict], articles: list[dict], window_hours: int) -> tuple[list[dict], list[tuple[dict, str]]]:
+    """
+    Filter out articles whose topic was covered recently (by *sent* snapshots).
+
+    Returns (kept, dropped_with_reason).
+    """
+    window = timedelta(hours=window_hours)
+    kept: list[dict] = []
+    dropped: list[tuple[dict, str]] = []
+    for article in articles:
+        hit = False
+        reason = ""
+        for seen in sent_snapshots + kept:
+            ok, reason = _topic_cooldown_hit(article, seen, window)
+            if ok:
+                hit = True
+                break
+        if hit:
+            dropped.append((article, reason))
+        else:
+            kept.append(article)
+    return kept, dropped
 
 
 def token_similarity(a: set, b: set) -> tuple:
@@ -262,19 +417,7 @@ def _is_near_duplicate(article, seen, window: timedelta) -> tuple[bool, str]:
     j, dice, n_inter = token_similarity(ca, cs)
     shared_topics = (ca & cs) & _TOPIC_DEDUP_TAGS
     if shared_topics:
-        min_lex = TOPIC_DEDUP_MIN_LEXICAL
-        if "#pl_weather_forecast" in shared_topics:
-            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
-        elif "#baltic_whale_stranding" in shared_topics:
-            # DE "wal" vs HE "לוויתן" do not share a token; Wismar/Poel alone should tie the beat.
-            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
-        elif "#de_reiche_fuel_policy" in shared_topics:
-            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
-        elif "#pl_tk_judge_oath_row" in shared_topics:
-            # PL headlines vs HE wires often share zero folded tokens; tag triple-gate is tight enough.
-            min_lex = 0
-        elif "#poznan_infant_abuse_beat" in shared_topics:
-            min_lex = TOPIC_DEDUP_MIN_LEXICAL_WEATHER
+        min_lex = _topic_tag_dedup_min_lex(shared_topics)
         if _lexical_token_overlap(ca, cs) >= min_lex:
             tag = ",".join(sorted(shared_topics))
             return True, f"topic-tag {tag}"
