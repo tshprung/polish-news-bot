@@ -144,46 +144,54 @@ def ultra_short_rss_skip_reason() -> str:
 _POLLSTER_NAMES = (
     r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united\s+surveys|\bsocjogram\b|sw\s+research)"
 )
+# Shares like 31%, 31,8%, 31.8 proc. (plain \d{1,3} misses decimal comma/dot shares).
+_POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,2}|\d{1,3})\s*(?:%|proc\.?|procent\b)"
 _PUBLIC_OPINION_POLL = re.compile(
     r"(?is)"
     r"(?:"
-    # Polish media almost always labels these as sondaż(e) / sondażowy.
-    r"\bsondaz\w*"
-    r"|"
-    r"badan\w{0,14}\s+opinii"
-    r"|"
-    r"badan\w{0,14}\s+spoleczn"
-    r"|"
-    # Pollster + voting intention / approval language or a headline share.
+    r"\bsondaz\w*|"
+    r"badan\w{0,14}\s+opinii|"
+    r"badan\w{0,14}\s+spoleczn|"
+    r"\bbadan\w{0,22}\s+cbos\b.{0,700}?"
+    + _POLL_SHARE_NUM
+    + r"|"
+    r"\bcbos\b.{0,900}?"
+    + _POLL_SHARE_NUM
+    + r"|"
+    + _POLL_SHARE_NUM
+    + r".{0,700}?\bcbos\b|"
     r"(?:"
     + _POLLSTER_NAMES
-    + r")"
-    r".{0,420}?"
-    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b)|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*))"
-    r"|"
-    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b))"
-    r".{0,320}?"
-    r"(?:"
+    + r").{0,720}?(?:"
+    + _POLL_SHARE_NUM
+    + r"|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*))|"
+    + r"(?:"
+    + _POLL_SHARE_NUM
+    + r").{0,520}?(?:"
     + _POLLSTER_NAMES
-    + r")"
-    r"|"
-    # Survey wording + Poles/electors + a headline figure.
+    + r")|"
     r"\bankiet\w*"
     r".{0,140}?"
     r"(?:polak\w*|wyborc\w*|mieszkanc\w*)"
     r".{0,140}?"
-    r"(?:\d{1,3}\s*(?:%|proc\.?|procent\b)|popier|nie\s*popier)"
-    r"|"
-    # Outlets often bury "sondaż" in the body; these phrases are strong voting-intention / fieldwork signals.
-    r"\bgdyby\s+wybory\b"
-    r"|"
-    r"\b(?:prognoz\w{0,16}\s+wyborcz\w*|symulacj\w{0,16}\s+wyborcz\w*)\b"
-    r"|"
-    r"\bpoparcie\s+partyjn\w*"
-    r"|"
-    r"\bnotowan\w{0,14}\s+partyjn\w*"
-    r"|"
-    r"\bprzebadan\w{0,18}\s+\d{3,5}\s+osob\b"
+    r"(?:"
+    + _POLL_SHARE_NUM
+    + r"|popier|nie\s*popier)|"
+    r"\bgdyby\s+wybory\b|"
+    r"\b(?:prognoz\w{0,16}\s+wyborcz\w*|symulacj\w{0,16}\s+wyborcz\w*)\b|"
+    r"\bpoparcie\s+partyjn\w*|"
+    r"\bnotowan\w{0,14}\s+partyjn\w*|"
+    r"\bprzebadan\w{0,18}\s+\d{3,5}\s+osob\b|"
+    r"(?:"
+    + _POLLSTER_NAMES
+    + r"|\bsondaz\w*)"
+    r".{0,560}?"
+    r"\b\d{2,3}\s+mandat\w{0,20}\b|"
+    + r"(?:"
+    + _POLL_SHARE_NUM
+    + r").{0,320}?"
+    + r"\b\d{2,3}\s+mandat\w{0,22}\b|"
+    r"סקר\s+(?:cbos|wp)\b"
     r")",
 )
 
@@ -197,9 +205,9 @@ def should_skip_public_opinion_poll_blob(blob: str) -> bool:
     return bool(_PUBLIC_OPINION_POLL.search(f))
 
 
-def should_skip_public_opinion_poll_teaser(title: str, summary: str) -> bool:
+def should_skip_public_opinion_poll_teaser(title: str, summary: str, link: str = "") -> bool:
     return should_skip_public_opinion_poll_blob(
-        f"{(title or '').strip()}\n{(summary or '').strip()}"
+        f"{(title or '').strip()}\n{(summary or '').strip()}\n{(link or '').strip()}"
     )
 
 

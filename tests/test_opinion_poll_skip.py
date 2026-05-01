@@ -20,6 +20,39 @@ def test_cbos_with_proc_skipped():
     )
 
 
+def test_cbos_decimal_and_hungary_angle_skipped():
+    """CBOS + multi-sentence lede before % (Hungary / EU angle); decimals like 41,0 proc."""
+    filler = "Lorem ipsum dolor sit amet. " * 25
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości z kraju i ze świata - wszystko co ważne - WP",
+        filler
+        + "CBOS zapytał Polaków o wybory na Węgrzech. "
+        + "41,0 proc. respondentów uważa, że będą korzystne dla Polski.",
+    )
+
+
+def test_decimal_comma_wp_poll_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "KO i PiS. Podział mandatów",
+        "31,8 proc. dla KO, 24,5 proc. dla PiS; KO z 192 mandatami w Sejmie.",
+    )
+
+
+def test_wp_sondaz_slug_in_link_skipped_when_title_generic():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości z kraju i ze świata - wszystko co ważne - WP",
+        "Krótki lead bez słowa sondaż.",
+        "https://wiadomosci.wp.pl/sondaz-wybory-ko-pis-mandaty-7270877297015008a",
+    )
+
+
+def test_sondaz_then_mandaty_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Sondaż WP. Sejm po wyborach",
+        "Symulacja: KO 192 mandaty, PiS 143 mandaty w Sejmie.",
+    )
+
+
 def test_ankieta_polacy_percent_skipped():
     assert should_skip_public_opinion_poll_teaser(
         "Ankieta wśród mieszkańców",

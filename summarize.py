@@ -184,7 +184,11 @@ def summarize_in_hebrew(
     if should_skip_ultra_short_rss_item(article.get("title"), article.get("summary")):
         return None, ultra_short_rss_skip_reason()
 
-    if should_skip_public_opinion_poll_teaser(article.get("title"), article.get("summary")):
+    if should_skip_public_opinion_poll_teaser(
+        article.get("title"),
+        article.get("summary"),
+        article.get("link") or "",
+    ):
         return None, public_opinion_poll_skip_reason()
 
     if should_skip_information_poor_rss_teaser(article["title"], article["summary"]):
@@ -228,6 +232,8 @@ def summarize_in_hebrew(
         (article.get("title") or "")
         + "\n"
         + (article.get("summary") or "")
+        + "\n"
+        + (article.get("link") or "")
         + "\n"
         + (body or "")[:12000],
     ):
