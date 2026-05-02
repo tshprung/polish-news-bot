@@ -142,7 +142,7 @@ def ultra_short_rss_skip_reason() -> str:
 
 # Opinion polls / “what Poles think” + percentages — not hard news for this channel.
 _POLLSTER_NAMES = (
-    r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united\s+surveys|\bsocjogram\b|sw\s+research)"
+    r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united[-\s]+surveys|\bsocjogram\b|sw\s+research)"
 )
 # Shares like 31%, 31,8%, 31.8 proc. (plain \d{1,3} misses decimal comma/dot shares).
 _POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,2}|\d{1,3})\s*(?:%|proc\.?|procent\b)"
@@ -191,8 +191,17 @@ _PUBLIC_OPINION_POLL = re.compile(
     + _POLL_SHARE_NUM
     + r").{0,320}?"
     + r"\b\d{2,3}\s+mandat\w{0,22}\b|"
-    r"סקר\s+(?:cbos|wp)\b"
-    r")",
+    # Gazeta.pl (and similar) reader polls: slug "zapytalismy-o-…" without the word "sondaż".
+    + r"zapytalismy-o-[a-z0-9-]{6,240}|"
+    + r"\bzapytalismy\b.{0,620}?"
+    + _POLL_SHARE_NUM
+    + r"|"
+    # WP.pl reader / vox-pop URLs: "polacy zabrali głos" (hyphenated slug) without "sondaż" in the title.
+    + r"polacy-zabrali-glos|"
+    + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,480}?"
+    + _POLL_SHARE_NUM
+    + r"|סקר\s+(?:cbos|wp)\b"
+    + r")",
 )
 
 
@@ -888,7 +897,8 @@ CLASSIFY_PROMPT = (
     "**with no Polish coast, agency, or citizens** in the excerpt.\n"
     "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
     "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision; "
-    "or **opinion polls / surveys** (sondaż, CBOS-style institutes, “what % of Poles think”) rather than a dated decision or event.\n"
+    "or **opinion polls / surveys** (sondaż, CBOS-style institutes, “what % of Poles think”, Gazeta-style reader URLs *zapytalismy-o-…*) "
+    "rather than a dated decision or event.\n"
     "One word: SKIP or GO."
 )
 

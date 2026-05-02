@@ -46,6 +46,40 @@ def test_wp_sondaz_slug_in_link_skipped_when_title_generic():
     )
 
 
+def test_wp_polacy_zabrali_glos_slug_skipped_when_title_generic():
+    """WP reader-poll slugs use polacy-zabrali-glos without 'sondaż' in the RSS title."""
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości z kraju i ze świata - wszystko co ważne - WP",
+        "",
+        "https://wiadomosci.wp.pl/co-jesli-putin-wezmie-udzial-w-szczycie-g20-polacy-zabrali-glos-7280874411100224a",
+    )
+
+
+def test_united_surveys_hyphenated_name_with_percent_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "G20 i Rosja",
+        "United-surveys dla WP: tylko 33,9 proc. za bojkotem szczytu.",
+        "",
+    )
+
+
+def test_gazeta_zapytalismy_o_slug_skipped_without_sondaz_or_percent_in_teaser():
+    """Gazeta reader poll URLs use zapytalismy-o-… slugs; RSS title is often generic."""
+    assert should_skip_public_opinion_poll_teaser(
+        "RSS Wiadomosci.gazeta.pl",
+        "",
+        "https://wiadomosci.gazeta.pl/polska/7,198072,32761493,zapytalismy-o-finansowanie-partii-przez-sympatykow-jedna-odpowiedz.html?utm_source=RSS",
+    )
+
+
+def test_zapytalismy_lede_with_decimal_shares_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Finansowanie partii przez sympatyków",
+        "Zapytaliśmy o zdanie. 81,49 proc. było przeciw, 10,72 proc. za, a 5,97 proc. częściowo za.",
+        "",
+    )
+
+
 def test_sondaz_then_mandaty_skipped():
     assert should_skip_public_opinion_poll_teaser(
         "Sondaż WP. Sejm po wyborach",
