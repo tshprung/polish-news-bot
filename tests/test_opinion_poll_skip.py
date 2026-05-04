@@ -63,6 +63,30 @@ def test_united_surveys_hyphenated_name_with_percent_skipped():
     )
 
 
+def test_wp_nowy_sondaz_slug_skipped_with_generic_rss_title():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości z kraju i ze świata - wszystko co ważne - WP",
+        "",
+        "https://wiadomosci.wp.pl/tak-polacy-oceniaja-tuska-nowy-sondaz-mowi-wszystko-7282218236745792a",
+    )
+
+
+def test_ogb_ogolnopolska_grupa_badawcza_with_percents_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Rząd w oczach Polaków",
+        "Badanie Ogólnopolskiej Grupy Badawczej: 51,1 proc. negatywnie, 29,4 proc. pozytywnie.",
+        "",
+    )
+
+
+def test_sample_size_prob_osob_with_percents_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Rząd. Podsumowanie",
+        "Wyniki: 40 proc. za. Na próbie 1000 osób w kwietniu 2026.",
+        "",
+    )
+
+
 def test_gazeta_zapytalismy_o_slug_skipped_without_sondaz_or_percent_in_teaser():
     """Gazeta reader poll URLs use zapytalismy-o-… slugs; RSS title is often generic."""
     assert should_skip_public_opinion_poll_teaser(
