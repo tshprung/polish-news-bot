@@ -96,6 +96,23 @@ def test_gazeta_zapytalismy_o_slug_skipped_without_sondaz_or_percent_in_teaser()
     )
 
 
+def test_gazeta_zapytalismy_europoslow_immunitety_url_skipped():
+    """Eurodeputy immunity reader poll; slug ends with tak-oceniono.html."""
+    assert should_skip_public_opinion_poll_teaser(
+        "RSS Wiadomosci.gazeta.pl",
+        "",
+        "https://wiadomosci.gazeta.pl/polska/7,198072,32767377,zapytalismy-o-europoslow-po-uchyleniu-immunitetow-tak-oceniono.html?utm_source=RSS",
+    )
+
+
+def test_zapytalismy_czytelnikow_teaser_skipped_without_percent_in_rss():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości",
+        "Zapytaliśmy czytelników, jak oceniają pracę europosłów. Byli surowi.",
+        "",
+    )
+
+
 def test_zapytalismy_lede_with_decimal_shares_skipped():
     assert should_skip_public_opinion_poll_teaser(
         "Finansowanie partii przez sympatyków",

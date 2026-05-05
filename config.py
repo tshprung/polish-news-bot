@@ -146,7 +146,8 @@ _POLLSTER_NAMES = (
     r"ogolnopolsk\w{0,22}\s+grup\w{0,14}\s+badawcz\w{0,18}|\bogb\b)"
 )
 # Shares like 31%, 31,8%, 31.8 proc. (plain \d{1,3} misses decimal comma/dot shares).
-_POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,2}|\d{1,3})\s*(?:%|proc\.?|procent\b)"
+# Allow 1–3 fractional digits (e.g. 56.37%, 81.49%) — still bounded so random IDs don’t match.
+_POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,3}|\d{1,3})\s*(?:%|proc\.?|procent\b)"
 _PUBLIC_OPINION_POLL = re.compile(
     r"(?is)"
     r"(?:"
@@ -201,7 +202,9 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r").{0,320}?"
     + r"\b\d{2,3}\s+mandat\w{0,22}\b|"
     # Gazeta.pl (and similar) reader polls: slug "zapytalismy-o-…" without the word "sondaż".
-    + r"zapytalismy-o-[a-z0-9-]{6,240}|"
+    + r"zapytalismy-o-(?:[a-z0-9-]|,){6,320}|"
+    + r"\bzapytalismy.{0,180}?czytelnik\w*|"
+    + r"tak-oceniono(?:\.html)?|"
     + r"\bzapytalismy\b.{0,620}?"
     + _POLL_SHARE_NUM
     + r"|"
