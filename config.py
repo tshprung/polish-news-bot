@@ -143,7 +143,8 @@ def ultra_short_rss_skip_reason() -> str:
 # Opinion polls / “what Poles think” + percentages — not hard news for this channel.
 _POLLSTER_NAMES = (
     r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united[-\s]+surveys|\bsocjogram\b|sw\s+research|"
-    r"ogolnopolsk\w{0,22}\s+grup\w{0,14}\s+badawcz\w{0,18}|\bogb\b)"
+    r"ogolnopolsk\w{0,22}\s+grup\w{0,14}\s+badawcz\w{0,18}|\bogb\b|"
+    r"\bopinia24\b)"
 )
 # Shares like 31%, 31,8%, 31.8 proc. (plain \d{1,3} misses decimal comma/dot shares).
 # Allow 1–3 fractional digits (e.g. 56.37%, 81.49%) — still bounded so random IDs don’t match.

@@ -70,6 +70,13 @@ def test_wp_nowy_sondaz_slug_skipped_with_generic_rss_title():
         "https://wiadomosci.wp.pl/tak-polacy-oceniaja-tuska-nowy-sondaz-mowi-wszystko-7282218236745792a",
     )
 
+def test_onet_nowy_sondaz_partyjny_opinia24_slug_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości wiadomosci.onet.pl",
+        "",
+        "https://wiadomosci.onet.pl/kraj/nowy-sondaz-partyjny-oto-rozklad-sil-w-sejmie-tusk-bez-szans-na-wiekszosc/t1jv0ez",
+    )
+
 
 def test_ogb_ogolnopolska_grupa_badawcza_with_percents_skipped():
     assert should_skip_public_opinion_poll_teaser(
