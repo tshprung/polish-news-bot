@@ -412,6 +412,9 @@ def summarize_in_hebrew(
     if should_reject_hebrew_scope_meta_summary(result):
         return None, hebrew_scope_meta_summary_skip_reason()
 
+    if should_skip_public_opinion_poll_blob(result):
+        return None, public_opinion_poll_skip_reason()
+
     return result, None
 
 

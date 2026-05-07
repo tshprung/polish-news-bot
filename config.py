@@ -153,6 +153,7 @@ _PUBLIC_OPINION_POLL = re.compile(
     r"(?is)"
     r"(?:"
     r"\bsondaz\w*|"
+    r"\bsonda\b|\bsonde\b|"
     r"badan\w{0,14}\s+opinii|"
     r"badan\w{0,14}\s+spoleczn|"
     r"\bbadan\w{0,22}\s+cbos\b.{0,700}?"
@@ -217,8 +218,10 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,680}?"
      + _POLL_SHARE_NUM
      + r"|(?:\bסקר\b|בסקר|הסקר).{0,80}?(?:opinia24|cbos|ibris|kantar|ipsos|pollster|wp)\b"
-     + r"|(?:\bסקר\b|בסקר|הסקר).{0,120}?(?:\bפולנים\b|בפולין|של\s+הפולנים).{0,120}?(?:\d{1,2}%|אחוז))",
- )
+      + r"|(?:\bסקר\b|בסקר|הסקר).{0,120}?(?:\bפולנים\b|בפולין|של\s+הפולנים).{0,120}?(?:"
+      + _POLL_SHARE_NUM
+      + r"|אחוז))",
+  )
 
 
 def should_skip_public_opinion_poll_blob(blob: str) -> bool:

@@ -223,7 +223,21 @@ def test_opinia24_long_distance():
 
 
 def test_hebrew_summary_rejection_in_blob():
-    """If for some reason a Hebrew summary of a poll is checked, it should be caught."""
+    """If for some reason a Hebrew summary of a poll is generated, it should be caught."""
     blob = "המפלגות בפולין כבר מתכוננות לבחירות לפרלמנט ב-2027. הסקר שערכה Opinia24 הראה שעם רשימה משותפת, KO ו-Lewica יקבלו 35.7% מהקולות."
     from config import should_skip_public_opinion_poll_blob
     assert should_skip_public_opinion_poll_blob(blob)
+
+
+def test_gazeta_sonda_user_example():
+    title = "Tak oceniono działalność Kościoła w Polsce. Instytucja pod ostrzałem"
+    summary = "Pod artykułem dotyczącym słów abp. Tadeusza Wojdy przeprowadziliśmy sondę na temat działalności Kościoła katolickiego"
+    link = "https://wiadomosci.gazeta.pl/polska/7,198072,32774815,zapytalismy-o-ocene-kosciola-po-slowach-abp-wojdy-jedna-odpowiedz.html?utm_source=RSS"
+    assert should_skip_public_opinion_poll_teaser(title, summary, link)
+
+
+def test_hebrew_decimal_poll_rejection():
+    # User example with decimal percentage
+    hebrew_summary = "לאחר דבריו של הארכיבישוף Tadeusz Wojda, סקר שנערך בפולין מגלה כי 69.5% מהמשתתפים מעריכים את פעילות הכנסייה הקתולית בפולין בצורה שלילית מאוד."
+    from config import should_skip_public_opinion_poll_blob
+    assert should_skip_public_opinion_poll_blob(hebrew_summary)
