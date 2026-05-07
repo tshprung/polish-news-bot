@@ -197,3 +197,33 @@ def test_normal_law_news_not_skipped():
 def test_skip_reason_is_rss_teaser_exempt():
     assert public_opinion_poll_skip_reason().lower().startswith("rss teaser:")
     assert skip_admin_notify_for_reason(public_opinion_poll_skip_reason())
+
+
+def test_opinia24_user_example():
+    title = "Wspólny start KO i Lewicy? Wiadomo, kto na tym najwięcej skorzysta"
+    summary = (
+        "Polska scena polityczna przygotowuje się na wybory w 2027 r. "
+        "Każda z partii, mniej lub bardziej, myśli już o potencjalnych sojuszach i programach, "
+        "które miałyby zapewnić jesienny triumf. Szczególnie twardy orzech do zgryzienia ma koalicja rządząca. "
+        "Sondaż Opinia24 wykazał, że ze wspólną listą KO i Lewica otrzymałyby 35,7 proc. głosów."
+    )
+    link = "https://wiadomosci.wp.pl/wspolny-start-ko-i-lewicy-wiadomo-kto-na-tym-najwiecej-skorzysta-7283220789245984a"
+    assert should_skip_public_opinion_poll_teaser(title, summary, link)
+
+
+def test_opinia24_long_distance():
+    title = "Analiza szans wyborczych KO i Lewicy"
+    # Lookahead distance check (920 characters in regex)
+    summary_800 = (
+        "W najnowszym badaniu Opinia24 sprawdzono nastroje przed wyborami. "
+        + "A" * 800
+        + " Wynik to 35,7 proc. poparcia."
+    )
+    assert should_skip_public_opinion_poll_teaser(title, summary_800)
+
+
+def test_hebrew_summary_rejection_in_blob():
+    """If for some reason a Hebrew summary of a poll is checked, it should be caught."""
+    blob = "המפלגות בפולין כבר מתכוננות לבחירות לפרלמנט ב-2027. הסקר שערכה Opinia24 הראה שעם רשימה משותפת, KO ו-Lewica יקבלו 35.7% מהקולות."
+    from config import should_skip_public_opinion_poll_blob
+    assert should_skip_public_opinion_poll_blob(blob)

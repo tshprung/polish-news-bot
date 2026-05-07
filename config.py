@@ -144,11 +144,11 @@ def ultra_short_rss_skip_reason() -> str:
 _POLLSTER_NAMES = (
     r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united[-\s]+surveys|\bsocjogram\b|sw[-\s]+research|"
     r"ogolnopolsk\w{0,22}\s+grup\w{0,14}\s+badawcz\w{0,18}|\bogb\b|"
-    r"\bopinia24\b)"
+    r"\bopinia24\b|\bpollster\b|\biusz\b|\barytmometr\b)"
 )
 # Shares like 31%, 31,8%, 31.8 proc. (plain \d{1,3} misses decimal comma/dot shares).
 # Allow 1–3 fractional digits (e.g. 56.37%, 81.49%) — still bounded so random IDs don’t match.
-_POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,3}|\d{1,3})\s*(?:%|proc\.?|procent\b)"
+_POLL_SHARE_NUM = r"(?:\d{1,2}[,.]\d{1,3}|\d{1,3})\s*(?:%|proc\.?|procent\b|pkt\s+proc\b)"
 _PUBLIC_OPINION_POLL = re.compile(
     r"(?is)"
     r"(?:"
@@ -165,12 +165,12 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r".{0,700}?\bcbos\b|"
     r"(?:"
     + _POLLSTER_NAMES
-    + r").{0,720}?(?:"
+    + r").{0,920}?(?:"
     + _POLL_SHARE_NUM
-    + r"|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*))|"
+    + r"|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*|glosowa\w*|poparcie|notowania))|"
     + r"(?:"
     + _POLL_SHARE_NUM
-    + r").{0,520}?(?:"
+    + r").{0,720}?(?:"
     + _POLLSTER_NAMES
     + r")|"
     r"\bankiet\w*"
@@ -186,21 +186,21 @@ _PUBLIC_OPINION_POLL = re.compile(
     r"\bnotowan\w{0,14}\s+partyjn\w*|"
     r"\bprzebadan\w{0,18}\s+\d{3,5}\s+osob\b|"
     # Sample size line (“na próbie 1000 osób”) near headline percentages — common without naming CBOS.
-    + r"prob\w{0,22}\s+\d{3,5}\s+osob\b.{0,400}?"
+    + r"prob\w{0,22}\s+\d{3,5}\s+osob\b.{0,500}?"
     + _POLL_SHARE_NUM
     + r"|"
     + _POLL_SHARE_NUM
-    + r".{0,400}?prob\w{0,22}\s+\d{3,5}\s+osob\b|"
+    + r".{0,500}?prob\w{0,22}\s+\d{3,5}\s+osob\b|"
     # WP.pl slug clichés; \\bsondaz can miss odd hyphen boundaries in some feeds.
     + r"nowy-sondaz|"
     r"(?:"
     + _POLLSTER_NAMES
     + r"|\bsondaz\w*)"
-    r".{0,560}?"
+    r".{0,760}?"
     r"\b\d{2,3}\s+mandat\w{0,20}\b|"
     + r"(?:"
     + _POLL_SHARE_NUM
-    + r").{0,320}?"
+    + r").{0,520}?"
     + r"\b\d{2,3}\s+mandat\w{0,22}\b|"
     # Gazeta.pl (and similar) reader polls: slug "zapytalismy-o-…" without the word "sondaż".
     + r"zapytalismy-o-(?:[a-z0-9-]|,){6,320}|"
@@ -214,11 +214,11 @@ _PUBLIC_OPINION_POLL = re.compile(
     # Onet.pl poll URL tropes (hyphenated slugs; "sondaz" can sit mid-path without a clean \\b).
     + r"wyborach-sondaz|"
     + r"sondaz-daje-wskaz|"
-    + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,480}?"
-    + _POLL_SHARE_NUM
-    + r"|סקר\s+(?:cbos|wp)\b"
-    + r")",
-)
+    + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,680}?"
+     + _POLL_SHARE_NUM
+     + r"|(?:\bסקר\b|בסקר|הסקר).{0,80}?(?:opinia24|cbos|ibris|kantar|ipsos|pollster|wp)\b"
+     + r"|(?:\bסקר\b|בסקר|הסקר).{0,120}?(?:\bפולנים\b|בפולין|של\s+הפולנים).{0,120}?(?:\d{1,2}%|אחוז))",
+ )
 
 
 def should_skip_public_opinion_poll_blob(blob: str) -> bool:
@@ -856,7 +856,8 @@ SYSTEM_PROMPT = (
     "SKIP - weather micro-updates: keep only major warnings/extremes or rate-limited forecast beats.\n"
     "SKIP - markets daily churn (crypto/stock up-down today) unless there is a concrete enforcement/regulatory decision, major platform outage, "
     "or clear Poland impact.\n"
-    "SKIP - opinion polls / surveys (sondaż, CBOS/IBRiS/Kantar-style headlines, “what share of Poles think”) without a binding vote outcome, law, or investigation as the news.\n"
+    "SKIP - opinion polls / surveys (sondaż, CBOS/IBRiS/Kantar/Opinia24-style headlines, “what share of Poles think”) "
+    "and any political analysis/simulations based on such polls, without a binding vote outcome, law, or investigation as the news.\n"
     "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
     "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
@@ -913,9 +914,9 @@ CLASSIFY_PROMPT = (
     "**with no Polish coast, agency, or citizens** in the excerpt.\n"
     "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
     "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision; "
-    "or **opinion polls / surveys** (sondaż, CBOS-style institutes, OGB / “Ogólnopolska Grupa Badawcza”, “what % of Poles think”, "
+    "or **opinion polls / surveys** (sondaż, CBOS-style institutes, Opinia24, OGB / “Ogólnopolska Grupa Badawcza”, “what % of Poles think”, "
     "Gazeta-style reader URLs *zapytalismy-o-…*) "
-    "rather than a dated decision or event.\n"
+    "including analysis or simulations based on them, rather than a dated decision or event.\n"
     "One word: SKIP or GO."
 )
 
