@@ -78,6 +78,30 @@ def test_onet_nowy_sondaz_partyjny_opinia24_slug_skipped():
     )
 
 
+def test_onet_polacy_zabrali_glos_trump_us_troops_slug_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości wiadomosci.onet.pl",
+        "",
+        "https://wiadomosci.onet.pl/kraj/donald-trump-moze-wycofac-zolnierzy-usa-z-naszego-kraju-polacy-zabrali-glos/31kv19p",
+    )
+
+
+def test_onet_wyborach_sondaz_ko_lewica_slug_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości wiadomosci.onet.pl",
+        "",
+        "https://wiadomosci.onet.pl/kraj/wspolna-lista-ko-i-lewicy-w-wyborach-sondaz-daje-wskazowke-tuskowi-i-czarzastemu/v2w1vbs",
+    )
+
+
+def test_sw_research_hyphen_for_onet_skipped():
+    assert should_skip_public_opinion_poll_teaser(
+        "Wiadomości wiadomosci.onet.pl",
+        "SW-Research dla Onet: 40,7 proc. Polaków uważa, że Trump może wycofać część wojsk.",
+        "",
+    )
+
+
 def test_ogb_ogolnopolska_grupa_badawcza_with_percents_skipped():
     assert should_skip_public_opinion_poll_teaser(
         "Rząd w oczach Polaków",

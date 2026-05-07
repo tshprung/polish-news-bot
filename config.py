@@ -142,7 +142,7 @@ def ultra_short_rss_skip_reason() -> str:
 
 # Opinion polls / “what Poles think” + percentages — not hard news for this channel.
 _POLLSTER_NAMES = (
-    r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united[-\s]+surveys|\bsocjogram\b|sw\s+research|"
+    r"(?:\bcbos\b|\bibris\b|\bkantar\b|\bipsos\b|\bestymator\b|united[-\s]+surveys|\bsocjogram\b|sw[-\s]+research|"
     r"ogolnopolsk\w{0,22}\s+grup\w{0,14}\s+badawcz\w{0,18}|\bogb\b|"
     r"\bopinia24\b)"
 )
@@ -211,6 +211,9 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r"|"
     # WP.pl reader / vox-pop URLs: "polacy zabrali głos" (hyphenated slug) without "sondaż" in the title.
     + r"polacy-zabrali-glos|"
+    # Onet.pl poll URL tropes (hyphenated slugs; "sondaz" can sit mid-path without a clean \\b).
+    + r"wyborach-sondaz|"
+    + r"sondaz-daje-wskaz|"
     + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,480}?"
     + _POLL_SHARE_NUM
     + r"|סקר\s+(?:cbos|wp)\b"
