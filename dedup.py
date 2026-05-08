@@ -164,6 +164,8 @@ def tokens_from_blob(blob: str) -> set:
         or re.search(r"ostrze\w|alert\w", bf)
         or re.search(r"warunk\w|mapy\s", bf)
         or re.search(r"wichur|huragan|nawaln|90\s*km", bf)
+        or re.search(r"\b-?\d{1,2}\s*(?:°|stopni|st\.)\b", bf)
+        or re.search(r"temperatur\w*.{0,40}\b-?\d{1,2}\b", bf)
     ):
         out.add("#pl_weather_forecast")
 

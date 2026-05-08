@@ -241,3 +241,19 @@ def test_hebrew_decimal_poll_rejection():
     hebrew_summary = "לאחר דבריו של הארכיבישוף Tadeusz Wojda, סקר שנערך בפולין מגלה כי 69.5% מהמשתתפים מעריכים את פעילות הכנסייה הקתולית בפולין בצורה שלילית מאוד."
     from config import should_skip_public_opinion_poll_blob
     assert should_skip_public_opinion_poll_blob(hebrew_summary)
+
+
+def test_hebrew_pollster_poll_rejection_user_example():
+    hebrew_summary = (
+        'לפי סקר של Instytut Badań Pollster עבור "Super Express", 60% מהפולנים מעריכים את החוקה הנוכחית באופן חיובי, '
+        "בעוד 22% רואים אותה בשלילה. בנוסף, 42% סבורים שאין צורך בחוקה חדשה, בעוד 37% תומכים בשינוי."
+    )
+    from config import should_skip_public_opinion_poll_blob
+    assert should_skip_public_opinion_poll_blob(hebrew_summary)
+
+
+def test_hebrew_poll_without_word_survey_still_rejected():
+    # Some summaries omit "סקר" but still read like a survey: multiple % + respondents framing
+    hebrew_summary = "60% מהמשתתפים תמכו במהלך, 22% התנגדו, ובמדגם נוסף 42% אמרו שאין צורך בשינוי."
+    from config import should_skip_public_opinion_poll_blob
+    assert should_skip_public_opinion_poll_blob(hebrew_summary)

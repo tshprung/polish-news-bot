@@ -41,3 +41,11 @@ def test_Hebrew_imgw_warning_is_weather_beat():
         ),
     }
     assert article_is_pl_weather_forecast_beat(article) is True
+
+
+def test_polish_temperature_forecast_is_weather_beat():
+    article = {
+        "title": "Zimno osiadzie nad Polską. Temperatura nie przekroczy 7 stopni",
+        "summary": "W weekend nadal chłodno, możliwe przymrozki.",
+    }
+    assert article_is_pl_weather_forecast_beat(article) is True

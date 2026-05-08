@@ -210,17 +210,19 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r"\bzapytalismy\b.{0,620}?"
     + _POLL_SHARE_NUM
     + r"|"
-    # WP.pl reader / vox-pop URLs: "polacy zabrali głos" (hyphenated slug) without "sondaż" in the title.
     + r"polacy-zabrali-glos|"
-    # Onet.pl poll URL tropes (hyphenated slugs; "sondaz" can sit mid-path without a clean \\b).
     + r"wyborach-sondaz|"
     + r"sondaz-daje-wskaz|"
     + r"\bpolacy\s+zabral\w{0,14}\s+glos\b.{0,680}?"
-     + _POLL_SHARE_NUM
-     + r"|(?:\bסקר\b|בסקר|הסקר).{0,80}?(?:opinia24|cbos|ibris|kantar|ipsos|pollster|wp)\b"
-      + r"|(?:\bסקר\b|בסקר|הסקר).{0,120}?(?:\bפולנים\b|בפולין|של\s+הפולנים).{0,120}?(?:"
-      + _POLL_SHARE_NUM
-      + r"|אחוז))",
+    + _POLL_SHARE_NUM
+    + r"|(?:\bסקר\b|בסקר|הסקר).{0,80}?(?:opinia24|cbos|ibris|kantar|ipsos|pollster|wp)\b"
+    + r"|(?:\bסקר\b|בסקר|הסקר).{0,120}?(?:\bפולנים\b|בפולין|של\s+הפולנים).{0,120}?(?:"
+    + _POLL_SHARE_NUM
+    + r"|אחוז)"
+    + r"|(?:(?:\d{1,2}[,.]\d{1,3}|\d{1,3})\s*(?:%|אחוז)).{0,90}?"
+    + r"(?:מה(?:נשאלים|משתתפים)|מהמשיבים|נשאלים|משתתפים|במדגם|במשאל).{0,260}?"
+    + r"(?:(?:\d{1,2}[,.]\d{1,3}|\d{1,3})\s*(?:%|אחוז))"
+    + r")",
   )
 
 
