@@ -257,3 +257,13 @@ def test_hebrew_poll_without_word_survey_still_rejected():
     hebrew_summary = "60% מהמשתתפים תמכו במהלך, 22% התנגדו, ובמדגם נוסף 42% אמרו שאין צורך בשינוי."
     from config import should_skip_public_opinion_poll_blob
     assert should_skip_public_opinion_poll_blob(hebrew_summary)
+
+
+def test_hebrew_russia_attack_fear_survey_user_example():
+    hebrew_summary = (
+        "סקר חדש מגלה כי רוב הפולנים חוששים מתקפה רוסית, עם 53.9% מהנשאלים שמודים בהרגשת דאגה. "
+        "החשש החזק ביותר נמצא בקרב תומכי הקואליציה השלטת, עם 66% מהנשאלים. "
+        "לעומתם, בקרב תומכי Konfederacja, רק 16% חוששים, בעוד 66% אינם מודאגים כלל."
+    )
+    from config import should_skip_public_opinion_poll_blob
+    assert should_skip_public_opinion_poll_blob(hebrew_summary)

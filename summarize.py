@@ -16,6 +16,8 @@ from config import (
     MAX_SUMMARY_WORDS,
     MAX_SUMMARY_WORDS_HARD,
     OPENAI_MAX_RETRIES,
+    OPENAI_MODEL_CLASSIFY,
+    OPENAI_MODEL_SUMMARIZE,
     OPENAI_TIMEOUT_SEC,
     PAYWALLED_DOMAINS,
     STAGE2_INPUT_CHARS_DEFAULT,
@@ -148,7 +150,7 @@ def _strip_erroneous_israel_subject_prefix(hebrew: str, source_blob: str) -> str
 def classify(client: OpenAI, text: str):
     _TEL.classify_calls += 1
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=OPENAI_MODEL_CLASSIFY,
         max_tokens=5,
         messages=[
             {"role": "system", "content": CLASSIFY_PROMPT},
@@ -268,7 +270,7 @@ def summarize_in_hebrew(
         _TEL.stage2_calls += 1
         _TEL.stage2_input_chars += len(user_blob)
         return client.chat.completions.create(
-            model="gpt-4o",
+            model=OPENAI_MODEL_SUMMARIZE,
             max_tokens=400,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
