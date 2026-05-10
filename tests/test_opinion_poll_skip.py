@@ -267,3 +267,13 @@ def test_hebrew_russia_attack_fear_survey_user_example():
     )
     from config import should_skip_public_opinion_poll_blob
     assert should_skip_public_opinion_poll_blob(hebrew_summary)
+
+
+def test_polsat_united_surveys_russia_attack_poll_skipped():
+    title = "Polacy boją się ataku Rosji? Mocny podział, wyróżnia się jedna grupa wyborców"
+    summary = (
+        "Ponad połowa Polaków obawia się, że Rosja mogłaby zaatakować nasz kraj lub inne państwo NATO "
+        "- wynika z sondażu United Surveys"
+    )
+    link = "https://www.polsatnews.pl/wiadomosc/2026-05-10/polacy-boja-sie-ataku-rosji-mocny-podzial-wyroznia-sie-jedna-grupa-wyborcow/"
+    assert should_skip_public_opinion_poll_teaser(title, summary, link)
