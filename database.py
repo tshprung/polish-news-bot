@@ -48,11 +48,56 @@ def init_db():
         "last_sent_epoch INTEGER NOT NULL)"
     )
     _migrate_weather_rate_to_channel_limits(conn)
+    _init_email_digest_items(conn)
     conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-2 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
     conn.execute("DELETE FROM dedup_recent WHERE sort_epoch < ?", (cutoff,))
     conn.commit()
     return conn
+
+
+def _init_email_digest_items(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_digest_items ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "article_id TEXT NOT NULL UNIQUE, "
+        "url TEXT NOT NULL, "
+        "title TEXT NOT NULL, "
+        "source TEXT NOT NULL, "
+        "published_at TEXT NULL, "
+        "published_epoch INTEGER NULL, "
+        "created_at TEXT NOT NULL, "
+        "summary_he TEXT NOT NULL, "
+        "importance_score INTEGER NOT NULL DEFAULT 0, "
+        "category TEXT NULL, "
+        "region TEXT NULL, "
+        "email_digest_sent_at TEXT NULL, "
+        "email_digest_slot TEXT NULL"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_digest_unsent "
+        "ON email_digest_items(email_digest_sent_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_digest_score "
+        "ON email_digest_items(importance_score)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_digest_category "
+        "ON email_digest_items(category)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_digest_region "
+        "ON email_digest_items(region)"
+    )
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(email_digest_items)").fetchall()}
+    if "published_epoch" not in cols:
+        try:
+            conn.execute("ALTER TABLE email_digest_items ADD COLUMN published_epoch INTEGER NULL")
+        except sqlite3.OperationalError:
+            pass
 
 
 def _migrate_weather_rate_to_channel_limits(conn: sqlite3.Connection) -> None:
@@ -111,6 +156,90 @@ def tk_judge_oath_post_allowed(conn: sqlite3.Connection, interval_sec: int) -> b
 
 def record_tk_judge_oath_post(conn: sqlite3.Connection) -> None:
     record_rate_limit_hit(conn, RATE_LIMIT_KEY_TK_JUDGE_OATH)
+
+
+def store_email_digest_item(
+    conn: sqlite3.Connection,
+    article: dict,
+    summary_he: str,
+    importance_score: int = 0,
+    category: str | None = None,
+    region: str | None = None,
+) -> bool:
+    now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    published_at = article.get("date")
+    published_epoch = None
+    try:
+        sk = article.get("sort_key")
+        if sk is not None:
+            published_epoch = int(sk.timestamp())
+    except Exception:
+        published_epoch = None
+
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO email_digest_items "
+        "(article_id, url, title, source, published_at, published_epoch, created_at, summary_he, "
+        "importance_score, category, region) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            article.get("id"),
+            article.get("link"),
+            article.get("title"),
+            article.get("source"),
+            published_at,
+            published_epoch,
+            now_iso,
+            summary_he,
+            int(importance_score or 0),
+            category,
+            region,
+        ),
+    )
+    return bool(cur.rowcount)
+
+
+def get_unsent_email_digest_items(conn: sqlite3.Connection) -> list[dict]:
+    cur = conn.execute(
+        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, "
+        "summary_he, importance_score, category, region "
+        "FROM email_digest_items "
+        "WHERE email_digest_sent_at IS NULL "
+        "ORDER BY importance_score DESC, id ASC"
+    )
+    rows = []
+    for r in cur.fetchall():
+        rows.append({
+            "id": r[0],
+            "article_id": r[1],
+            "url": r[2],
+            "title": r[3],
+            "source": r[4],
+            "published_at": r[5],
+            "published_epoch": r[6],
+            "created_at": r[7],
+            "summary_he": r[8],
+            "importance_score": r[9],
+            "category": r[10],
+            "region": r[11],
+        })
+    return rows
+
+
+def mark_email_digest_items_sent(
+    conn: sqlite3.Connection,
+    item_ids: list[int],
+    slot: str,
+    sent_at_iso: str,
+) -> None:
+    if not item_ids:
+        return
+    placeholders = ",".join("?" for _ in item_ids)
+    conn.execute(
+        f"UPDATE email_digest_items "
+        f"SET email_digest_sent_at = ?, email_digest_slot = ? "
+        f"WHERE id IN ({placeholders}) AND email_digest_sent_at IS NULL",
+        (sent_at_iso, slot, *item_ids),
+    )
 
 
 def get_new_articles(conn):

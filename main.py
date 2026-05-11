@@ -1,6 +1,9 @@
 import html
 import logging
+import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from openai import OpenAI
 
@@ -18,10 +21,13 @@ from config import (
 from database import (
     fuel_tourism_post_allowed,
     get_new_articles,
+    get_unsent_email_digest_items,
     init_db,
+    mark_email_digest_items_sent,
     record_fuel_tourism_post,
     record_tk_judge_oath_post,
     record_weather_post,
+    store_email_digest_item,
     tk_judge_oath_post_allowed,
     weather_post_allowed,
 )
@@ -35,6 +41,7 @@ from dedup import (
     topic_cooldown_filter,
 )
 from http_util import make_http_session, request_timeout
+from email_digest import iso_utc_now, score_and_classify_item, send_email_digest
 from summarize import openai_client, summarize_in_hebrew
 from telegram_bot import notify_admin, send_to_telegram, telegram_html_anchor
 
@@ -45,7 +52,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def main():
+def run_hourly_telegram():
     conn = init_db()
     session = make_http_session()
     to = request_timeout()
@@ -156,6 +163,25 @@ def main():
             if TELEGRAM_LINK_PREVIEW_ENABLED:
                 message = f"{message}\n{article['link']}"
             send_to_telegram(session, message, timeout=to)
+            try:
+                score, category, region = score_and_classify_item(
+                    article.get("title", ""),
+                    article.get("source", ""),
+                    article.get("link", ""),
+                    hebrew,
+                )
+                stored = store_email_digest_item(
+                    conn,
+                    article,
+                    hebrew,
+                    importance_score=score,
+                    category=category,
+                    region=region,
+                )
+                if stored:
+                    log.info("Stored for email digest: %s", article["title"][:70])
+            except Exception as e:
+                log.warning("Email-digest store failed: %s", e)
             conn.execute(
                 "INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],)
             )
@@ -180,5 +206,38 @@ def main():
     conn.close()
 
 
+def run_send_email_digest(slot: str) -> int:
+    conn = init_db()
+    client: OpenAI = openai_client()
+
+    items = get_unsent_email_digest_items(conn)
+    log.info("Email digest unsent items: %d", len(items))
+
+    sent_ids, reason = send_email_digest(client=client, slot=slot, items=items)
+    if reason:
+        if slot == "midday" and "insufficient" in reason:
+            log.info("Email digest %s: %s", slot, reason)
+            return 0
+        log.info("Email digest %s: %s", slot, reason)
+        return 0
+
+    sent_at = iso_utc_now()
+    mark_email_digest_items_sent(conn, sent_ids, slot, sent_at)
+    conn.commit()
+    log.info("Email digest sent: slot=%s items=%d", slot, len(sent_ids))
+    return 0
+
+
+def main():
+    if "--send-email-digest" in sys.argv:
+        try:
+            idx = sys.argv.index("--send-email-digest")
+            slot = sys.argv[idx + 1]
+        except Exception:
+            raise SystemExit("usage: python main.py --send-email-digest <morning|midday|evening>")
+        return run_send_email_digest(slot)
+    return run_hourly_telegram()
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

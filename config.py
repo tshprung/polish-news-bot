@@ -938,3 +938,21 @@ OPENAI_MAX_RETRIES = 2
 
 OPENAI_MODEL_CLASSIFY = os.environ.get("OPENAI_MODEL_CLASSIFY", "gpt-5.4-nano")
 OPENAI_MODEL_SUMMARIZE = os.environ.get("OPENAI_MODEL_SUMMARIZE", "gpt-5.4-nano")
+OPENAI_MODEL_EMAIL_DIGEST = os.environ.get("OPENAI_MODEL_EMAIL_DIGEST", OPENAI_MODEL_SUMMARIZE)
+
+EMAIL_DIGEST_ENABLED = os.environ.get("EMAIL_DIGEST_ENABLED", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+EMAIL_TO = os.environ.get("EMAIL_TO", "tshprung@gmail.com")
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "")
+
+MIDDAY_MIN_ITEMS = 3
+MIDDAY_HIGH_IMPORTANCE_SCORE = 35
+MIDDAY_MIN_HIGH_IMPORTANCE_ITEMS = 1
