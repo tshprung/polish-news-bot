@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from dataclasses import dataclass
 
 import requests
+import openai
 from openai import OpenAI
 
 from article_fetch import fetch_article_body
@@ -53,6 +54,24 @@ from config import (
 log = logging.getLogger(__name__)
 
 _SUMMARY_CAP = str(MAX_SUMMARY_WORDS)
+
+
+def _chat_create(client: OpenAI, *, model: str, messages: list[dict], max_out: int):
+    try:
+        return client.chat.completions.create(
+            model=model,
+            max_completion_tokens=max_out,
+            messages=messages,
+        )
+    except openai.BadRequestError as e:
+        if "Unsupported parameter: 'max_completion_tokens'" in str(e):
+            return client.chat.completions.create(
+                model=model,
+                max_tokens=max_out,
+                messages=messages,
+            )
+        raise
+
 
 @dataclass
 class _RunTelemetry:
@@ -149,9 +168,10 @@ def _strip_erroneous_israel_subject_prefix(hebrew: str, source_blob: str) -> str
 
 def classify(client: OpenAI, text: str):
     _TEL.classify_calls += 1
-    response = client.chat.completions.create(
+    response = _chat_create(
+        client,
         model=OPENAI_MODEL_CLASSIFY,
-        max_tokens=5,
+        max_out=5,
         messages=[
             {"role": "system", "content": CLASSIFY_PROMPT},
             {"role": "user", "content": f"Article: {text[:500]}"},
@@ -269,9 +289,10 @@ def summarize_in_hebrew(
     def call_stage2(user_blob: str):
         _TEL.stage2_calls += 1
         _TEL.stage2_input_chars += len(user_blob)
-        return client.chat.completions.create(
+        return _chat_create(
+            client,
             model=OPENAI_MODEL_SUMMARIZE,
-            max_tokens=400,
+            max_out=400,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_blob},

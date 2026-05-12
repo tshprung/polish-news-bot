@@ -193,7 +193,7 @@ def render_email_digest_html(client: OpenAI, slot: str, selected: list[dict]) ->
     system, user = _build_digest_prompt(slot, selected)
     resp = client.chat.completions.create(
         model=OPENAI_MODEL_EMAIL_DIGEST,
-        max_tokens=1600,
+        max_completion_tokens=1600,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -247,4 +247,3 @@ def send_email_digest(
 
 def iso_utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
