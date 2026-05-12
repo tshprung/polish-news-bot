@@ -39,9 +39,27 @@ _SECTION_TITLES_HE = {
 }
 
 
+def _ensure_large_font_html(html_body: str) -> str:
+    style = (
+        "<style>"
+        "html,body{font-size:200%;line-height:1.35;font-family:Arial,Helvetica,sans-serif}"
+        "h1{margin:0 0 0.6em 0}h2{margin:1.1em 0 0.4em 0}"
+        "p,li{margin:0 0 0.6em 0}"
+        "</style>"
+    )
+    s = (html_body or "").strip()
+    if not s:
+        return s
+    if re.search(r"(?is)<html\b", s):
+        if re.search(r"(?is)<head\b", s):
+            return re.sub(r"(?is)(<head\b[^>]*>)", r"\1" + style, s, count=1)
+        return re.sub(r"(?is)(<html\b[^>]*>)", r"\1<head>" + style + "</head>", s, count=1)
+    return "<html><head>" + style + "</head><body>" + s + "</body></html>"
+
+
+
 def score_and_classify_item(title: str, source: str, url: str, summary_he: str) -> tuple[int, str, str | None]:
     blob = f"{title}\n{source}\n{url}\n{summary_he}".lower()
-    score = 0
 
     is_weather = bool(re.search(r"\bm(e|ę)z?g\s*אויר|pogod|prognoz|temperatur|burz|mroz|przymroz", blob))
     is_poll = bool(re.search(r"sonda(?:z|ż|)\b|sond[eę]\b|cbos|ibris|kantar|opinia24|pollster|united", blob))
@@ -227,6 +245,7 @@ def send_email_digest(
     subject = _email_subject(slot, now_waw)
 
     html_body = render_email_digest_html(client, slot, selected)
+    html_body = _ensure_large_font_html(html_body)
     if not html_body:
         return [], "empty digest html"
 
