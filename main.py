@@ -164,12 +164,16 @@ def run_hourly_telegram():
                 message = f"{message}\n{article['link']}"
             send_to_telegram(session, message, timeout=to)
             try:
-                score, category, region = score_and_classify_item(
-                    article.get("title", ""),
-                    article.get("source", ""),
-                    article.get("link", ""),
-                    hebrew,
-                )
+                try:
+                    score, category, region = score_and_classify_item(
+                        article.get("title", ""),
+                        article.get("source", ""),
+                        article.get("link", ""),
+                        hebrew,
+                    )
+                except Exception as e:
+                    log.warning("Email-digest scoring failed: %s", e)
+                    score, category, region = 0, "other", None
                 stored = store_email_digest_item(
                     conn,
                     article,
@@ -180,6 +184,8 @@ def run_hourly_telegram():
                 )
                 if stored:
                     log.info("Stored for email digest: %s", article["title"][:70])
+                else:
+                    log.info("Email digest already stored: %s", article["title"][:70])
             except Exception as e:
                 log.warning("Email-digest store failed: %s", e)
             conn.execute(
