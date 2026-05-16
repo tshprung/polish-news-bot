@@ -46,6 +46,8 @@ from config import (
     should_skip_private_medical_fundraiser_teaser,
     should_skip_public_opinion_poll_blob,
     should_skip_public_opinion_poll_teaser,
+    should_skip_non_national_poland_teaser,
+    non_national_poland_skip_reason,
     should_skip_ultra_short_rss_item,
     ultra_short_rss_skip_reason,
     zeit_jahrgang_index_skip_reason,
@@ -236,6 +238,11 @@ def summarize_in_hebrew(
 
     if should_skip_private_medical_fundraiser_teaser(article["title"], article["summary"]):
         return None, crowdfunding_medical_skip_reason()
+
+    if should_skip_non_national_poland_teaser(
+        article.get("title") or "", article.get("summary") or "", article.get("link") or ""
+    ):
+        return None, non_national_poland_skip_reason()
 
     if is_zeit_jahrgang_index_url(article.get("link")):
         return None, zeit_jahrgang_index_skip_reason()

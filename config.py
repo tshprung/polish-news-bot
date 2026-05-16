@@ -356,6 +356,7 @@ SKIP_NOTIFY_EXEMPT_PREFIXES = (
     "rss teaser:",
     "pan-eu guide:",
     "scope meta:",
+    "scope:",
 )
 
 
@@ -802,6 +803,52 @@ def crowdfunding_medical_skip_reason() -> str:
     return "rss teaser: private medical fundraiser / donation appeal"
 
 
+_PL_NATIONAL_HOOK = re.compile(
+    r"(?is)\b(?:"
+    r"polsk\w*|polsce|polacy|polak\w*|"
+    r"sejm|senat|rz[aą]d|premier|prezydent|ustaw\w*|trybuna[łl]|tk\b|"
+    r"mswia|msz\b|mon\b|nbp\b|zus\b|krs\b|pk\b|pis\b|ko\b|po\b|lewica|konfederacj"
+    r")\b"
+)
+_FOREIGN_WORLD_WIRE = re.compile(
+    r"(?is)\b(?:"
+    r"ukrain\w*|kij[oó]w|kyiv|zelensk\w*|"
+    r"rosj\w*|putin\w*|moskw\w*|kreml\w*|"
+    r"naddniestrz\w*|naddniestrze|tr?ansnistr\w*|"
+    r"bia[łl]oru[śs]\w*|iran\w*|izrael\w*|gaza\b|hamas\b|"
+    r"trump\w*|usa\b|waszyngton\w*|chiny|pekin\w*|"
+    r"nato\b|ue\b|bruksela|komisj\w*\s+europej"
+    r")\b"
+)
+_PL_LOCAL_ONLY_MARKERS = re.compile(
+    r"(?is)\b(?:"
+    r"wroc[łl]aw|krak[oó]w|gd[aą]sk|gdy[nń]ia|pozn[ań]|\blodz\b|ł[oó]d[zź]|"
+    r"bialystok|rzesz[oó]w|katowic\w*|szczecin|lublin|bydgoszcz|toru[nń]|"
+    r"olsztyn|opole|kielc\w*|zielona\s+g[oó]ra|gorz[oó]w|"
+    r"dolno[śs]l[aą]sk\w*|mazowieck\w*|ma[łl]opolsk\w*|podlask\w*|"
+    r"podkarpack\w*|[śs]l[aą]sk\w*|wielkopolsk\w*|pomorsk\w*"
+    r")\b"
+)
+
+
+def should_skip_non_national_poland_teaser(title: str, summary: str, link: str = "") -> bool:
+    blob = f"{(title or '').strip()}\n{(summary or '').strip()}\n{(link or '').strip()}".strip()
+    if len(blob) < 32:
+        return False
+    f = fold_pl(blob[:12000])
+    if _PL_NATIONAL_HOOK.search(f):
+        return False
+    if _FOREIGN_WORLD_WIRE.search(f):
+        return True
+    if _PL_LOCAL_ONLY_MARKERS.search(f):
+        return True
+    return False
+
+
+def non_national_poland_skip_reason() -> str:
+    return "scope: not Poland national (foreign wire or local-only without national institutions)"
+
+
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
 MAX_SUMMARY_WORDS = 50
@@ -831,10 +878,12 @@ SYSTEM_PROMPT = (
     "For the country as a whole, use Hebrew פולין (e.g. בפולין, תושבי פולין)—not the Polish word 'Polska' or ב-Polska (confusing hybrid). "
     "Do not put Israeli cities (תל אביב, ירושלים, etc.) instead of Polish ones. "
     "Syrenka / pomnik Syrenki = Warsaw mermaid monument in Warszawa, not Israel.\n\n"
-    "**Channel scope — Poland national news:** Cover **Poland** first. International, EU, or third-country stories are **GO** "
-    "only when the excerpt **directly** involves Poland: Polish institutions or officials, Polish citizens where the story is "
-    "about them as **Poland**, border, economy or security **for Poland**, bilateral rows naming PL, or Polish government position "
-    "on an external event. If the same wire would fit readers in another country with no Poland-specific facts—**SKIP**, even on Onet/TVN/etc.\n\n"
+    "**Channel scope — Poland national news (domestic-first):** Cover **Poland's national-level domestic affairs**. "
+    "**GO** when it is clearly about Poland as a state: government/Sejm/Senate, presidency, courts, nationwide economy/price policy, "
+    "nationwide security for Poland, and other country-wide issues. "
+    "**SKIP** foreign wars/diplomacy and world wires (Russia/Ukraine/US/EU etc.) unless Poland's national institutions or officials are "
+    "explicitly central in the excerpt (Polish government position/decision, Polish MFA/MON, Sejm vote, Polish agencies). "
+    "Also **SKIP** purely local city/regional incidents unless the excerpt clearly frames it as a national issue.\n\n"
     "Reply with exactly one line, no preamble:\n"
     "SKIP - sports.\n"
     "SKIP - no direct Poland tie (per scope above): another country's **purely domestic** affairs only; **generic EU/Brussels** desk "
@@ -905,9 +954,11 @@ SYSTEM_PROMPT = (
 )
 
 CLASSIFY_PROMPT = (
-    "**Poland — national news channel.** Feeds are Polish outlets but include world wires.\n"
-    "**GO** if the excerpt clearly concerns **Poland**: events on PL territory, Polish actors and institutions, or an international/EU story "
-    "where **Poland is explicitly involved** (named, affected, border, policy position, citizens as the Polish angle).\n"
+    "**Poland — national news channel (domestic-first).** Feeds are Polish outlets but include world wires and local crime.\n"
+    "**GO** only if the excerpt clearly concerns **Poland at a national level**: Polish government/Sejm/Senate/presidency, "
+    "national courts/constitutional issues, nationwide economy/price policy, nationwide security for Poland, or other country-wide issues.\n"
+    "**GO** for foreign/security topics only when Poland's national institutions or officials are explicitly central (MFA/MON, "
+    "Sejm vote, government decision, Polish agencies), not just that it happened in a Polish city.\n"
     "**SKIP** if: sports; or the story **lacks a direct Poland tie** (another country's internal affairs only, generic EU/Brussels desk, "
     "generic foreign-power politics) — **even when a Polish site syndicates it**; or **Hungary-only** rhetoric on Russia sanctions, "
     "EU energy, or oil pipelines (e.g. Orbán vs Brussels, Przyjaźń) **without Poland named or a Polish policy stake**; "

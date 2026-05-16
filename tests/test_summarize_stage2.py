@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from config import public_opinion_poll_skip_reason
+from config import non_national_poland_skip_reason, public_opinion_poll_skip_reason
 from summarize import summarize_in_hebrew
 
 
@@ -103,8 +103,8 @@ def test_hebrew_summary_after_two_insufficient_retries(monkeypatch):
     long_pl = ("Konkretny opis wydarzeń z datami i cytatami. " * 80).strip()
     monkeypatch.setattr("summarize.fetch_article_body", lambda *_a, **_k: long_pl)
     article = {
-        "link": "https://wiadomosci.onet.pl/swiat/dyplomacja/y",
-        "title": "Unia i NATO omawiają bezpieczeństwo wschodniej flanki",
+        "link": "https://wiadomosci.onet.pl/kraj/polityka/y",
+        "title": "Sejm omawia bezpieczeństwo wschodniej flanki i finansowanie armii",
         "summary": "",
     }
     he = "זהו סיכום בעברית שמספיק ארוך ומתאר את העיקרי מהכתבה בפולנית בלי לדלג על עובדות."
@@ -138,6 +138,27 @@ def test_wp_sondaz_skipped_before_llm(monkeypatch):
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
     assert out is None
     assert reason == public_opinion_poll_skip_reason()
+    assert calls["fetch"] == 0
+    assert client.chat.completions.create.call_count == 0
+
+
+def test_foreign_wire_skipped_before_llm(monkeypatch):
+    calls = {"fetch": 0}
+
+    def _fetch(*_a, **_k):
+        calls["fetch"] += 1
+        return "body"
+
+    monkeypatch.setattr("summarize.fetch_article_body", _fetch)
+    article = {
+        "link": "https://wiadomosci.wp.pl/lista-celow-rosyjskiej-armii-przygotowuja-atak-na-bunkry-zelenskiego-7286349218973760a",
+        "title": "Lista celów rosyjskiej armii. Przygotowują atak na bunkry Zełenskiego",
+        "summary": "",
+    }
+    client = _client_with_responses("GO", "should not run")
+    out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
+    assert out is None
+    assert reason == non_national_poland_skip_reason()
     assert calls["fetch"] == 0
     assert client.chat.completions.create.call_count == 0
 
