@@ -357,6 +357,7 @@ SKIP_NOTIFY_EXEMPT_PREFIXES = (
     "pan-eu guide:",
     "scope meta:",
     "scope:",
+    "fuel price:",
 )
 
 
@@ -849,6 +850,81 @@ def non_national_poland_skip_reason() -> str:
     return "scope: not Poland national (foreign wire or local-only without national institutions)"
 
 
+# Routine pump-price tables (ministerial max PLN/l, KAS fines) — not channel news.
+_FUEL_PRICE_MAJOR_EXCEPTION = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"niedobor\w*\s+paliw|brak\s+paliw|kryzys\s+paliw|"
+    r"(?:sejm|senat).{0,100}(?:ustaw|głosow|uchwal|projekt).{0,40}(?:paliw|benzyn|akcyz|energ)|"
+    r"(?:ustaw|projekt).{0,60}(?:paliw|benzyn|akcyz).{0,40}(?:sejm|senat)|"
+    r"(?:wypadek|pożar|eksploz).{0,80}(?:rafiner|orlen|płock)|"
+    r"embargo|sankcj\w*.{0,40}(?:ropa|paliw)|"
+    r"strajk.{0,60}(?:orlen|rafiner)"
+    r")",
+)
+_FUEL_PRICE_ROUTINE_CHURN = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"maksymaln\w*\s+cen\w*\s+paliw|"
+    r"maxymaln\w*\s+cen\w*\s+paliw|"
+    r"nowe\s+maksymaln\w*\s+cen\w*\s+paliw|"
+    r"ceny\s+(?:maksymaln\w*|najwyższ\w*|najwyzs\w*|detaliczn\w*)\s+paliw|"
+    r"kosmetyczn\w*\s+zmian\w*|"
+    r"(?:minister\w*\s+energii|ministr\s+energii).{0,100}(?:cen\w*\s+paliw|maksymaln\w*\s+cen)|"
+    r"(?:cen\w*\s+paliw|maksymaln\w*\s+cen).{0,100}(?:minister\w*\s+energii|krajow\w*\s+administracj\w*\s+skarbow)|"
+    r"krajow\w*\s+administracj\w*\s+skarbow\w*.{0,80}(?:paliw|benzyn|stacj|kary|mandat)|"
+    r"cena\s+(?:detaliczna|maksymalna)\s+paliw|"
+    r"tabela\s+cen\s+paliw|"
+    r"maksymaln\w*-ceny-paliw|ceny-paliw-w-polsce|"
+    r"מחיר(?:י|י\s+ה)?\s*(?:ה)?דלק\s*(?:ה)?מרביים|"
+    r"תקר(?:ה|ת)\s+מחיר(?:י)?\s*דלק|"
+    r"שר\s+האנרגיה.{0,120}(?:דלק|בנזין|סולר)|"
+    r"בנזין\s*(?:95|98).{0,40}(?:סולר|זלוטי)"
+    r")",
+)
+_FUEL_PRICE_FUEL_CONTEXT = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"paliw|benzyn|diesel|olej\s+nap|\bon\b\s*(?:95|98)|"
+    r"דלק|בנזין|סולר"
+    r")",
+)
+
+
+def should_skip_fuel_price_churn_blob(blob: str) -> bool:
+    """True for periodic max pump-price tables, not fuel crises or fuel-tax legislation."""
+    raw = blob or ""
+    if not raw.strip():
+        return False
+    if _FUEL_PRICE_MAJOR_EXCEPTION.search(raw):
+        return False
+    if not _FUEL_PRICE_FUEL_CONTEXT.search(raw):
+        return False
+    folded = fold_pl(raw[:12000])
+    if _FUEL_PRICE_ROUTINE_CHURN.search(raw) or _FUEL_PRICE_ROUTINE_CHURN.search(folded):
+        return True
+    # Minister sets PLN/l for 95/98/diesel on specific dates — typical wire shape.
+    if re.search(
+        r"(?is)"
+        r"(?:minister\w*\s+energii|ministr\s+energii).{0,160}"
+        r"(?:\d+[.,]\d{2}\s*zł|zł\s*[/]?\s*l|"
+        r"benzyn\w*\s*(?:95|98)|on\s*(?:95|98)|diesel|olej\s+nap)",
+        folded,
+    ):
+        return True
+    return False
+
+
+def should_skip_fuel_price_churn_teaser(title: str, summary: str, link: str = "") -> bool:
+    return should_skip_fuel_price_churn_blob(
+        f"{(title or '').strip()}\n{(summary or '').strip()}\n{(link or '').strip()}"
+    )
+
+
+def fuel_price_churn_skip_reason() -> str:
+    return "fuel price: routine max pump price table (not channel news)"
+
+
 PAYWALLED_DOMAINS = {"pro.rp.pl", "rp.pl", "wyborcza.pl"}
 
 MAX_SUMMARY_WORDS = 50
@@ -908,6 +984,8 @@ SYSTEM_PROMPT = (
     "SKIP - service/lifestyle and low-signal noise: shopping/coupons/listicles, horoscopes/quizzes, travel/restaurant 'what to do', "
     "celebrity/showbiz, and micro-local updates like minor traffic closures or small incidents without broader public impact.\n"
     "SKIP - weather micro-updates: keep only major warnings/extremes or rate-limited forecast beats.\n"
+    "SKIP - routine **fuel pump price tables** (Polish maksymalne ceny paliw / minister energii sets max PLN/l for benzyna 95/98/on/diesel, "
+    "Krajowa Administracja Skarbowa fines for selling above cap, 'kosmetyczna zmiana') — not fuel crises, refinery accidents, or new fuel-tax legislation.\n"
     "SKIP - markets daily churn (crypto/stock up-down today) unless there is a concrete enforcement/regulatory decision, major platform outage, "
     "or clear Poland impact.\n"
     "SKIP - opinion polls / surveys (sondaż, CBOS/IBRiS/Kantar/Opinia24-style headlines, “what share of Poles think”) "
@@ -919,6 +997,8 @@ SYSTEM_PROMPT = (
     "or who said what— you must output Hebrew summarizing those facts; do not answer INSUFFICIENT. "
     "Interviews, diplomacy, and regional/environmental regulation count as enough to summarize.\n\n"
     "Every Hebrew-line answer must contain Hebrew script; never reply with English-only or Polish-only Latin sentences. "
+    "Write the full summary in Hebrew prose — never paste or lightly edit Polish/German/English sentences from the source; "
+    "Latin script is only for proper nouns (people, brands, cities, acronyms), never for Polish verbs or grammar. "
     "When outputting Hebrew, write only the summary text—never prefix with עברית:, תרגום:, Hebrew:, Summary:, or similar. "
     "Hebrew line must start with Hebrew; Latin for personal names, all Polish place names (Gdańsk, Gdynia, Trójmiasto, etc.—as in source), acronyms (NATO, PiS). "
     "Polish age headlines **N-latka** / **N-latek** (years old, feminine/masculine): write **בת N** or **בן N** from context, "
@@ -970,6 +1050,7 @@ CLASSIFY_PROMPT = (
     "**with no Polish coast, agency, or citizens** in the excerpt.\n"
     "**SKIP** also for: celebrity/showbiz, lifestyle/service listicles (shopping/coupons/tips), horoscopes/quizzes, "
     "micro-local traffic/minor incidents without wider impact, and routine markets churn with no concrete decision; "
+    "or **routine fuel max-price tables** (maksymalne ceny paliw, minister energii PLN/l caps, KAS pump fines); "
     "or **opinion polls / surveys** (sondaż, CBOS-style institutes, Opinia24, OGB / “Ogólnopolska Grupa Badawcza”, “what % of Poles think”, "
     "Gazeta-style reader URLs *zapytalismy-o-…*) "
     "including analysis or simulations based on them, rather than a dated decision or event.\n"

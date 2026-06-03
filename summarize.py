@@ -30,6 +30,7 @@ from config import (
     entertainment_chat_skip_reason,
     evergreen_culture_skip_reason,
     fold_pl,
+    fuel_price_churn_skip_reason,
     hebrew_scope_meta_summary_skip_reason,
     is_zeit_jahrgang_index_url,
     should_reject_hebrew_scope_meta_summary,
@@ -40,6 +41,8 @@ from config import (
     should_skip_baltic_wildlife_history_teaser,
     should_skip_entertainment_politician_chat_teaser,
     should_skip_evergreen_culture_teaser,
+    should_skip_fuel_price_churn_blob,
+    should_skip_fuel_price_churn_teaser,
     should_skip_information_poor_rss_teaser,
     should_skip_pan_eu_generic_property_guide,
     should_skip_private_medical_fundraiser_blob,
@@ -104,6 +107,16 @@ def _log_run_telemetry() -> None:
     )
 
 _HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
+_LATIN_LETTER_RE = re.compile(r"[A-Za-z\u00C0-\u024F]")
+_POLISH_DIACRITIC_RE = re.compile(r"[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
+_POLISH_PROSE_WORD_RE = re.compile(
+    r"(?i)\b(?:wstrzym\w*|natychmiast|powodem|wszystkich|seriach|kroplami|"
+    r"obr[oó]t\w*|zanieczyszcze\w*|szczelno\w*|spełnia\w*|"
+    r"we\s+wszystkich|do\s+oczu|z\s+powodu|negatywne\s+badania)\b"
+)
+_HEBREW_PROSE_MIN_RATIO = 0.32
+_HEBREW_PROSE_MIN_LETTERS = 14
+_HEBREW_RETRY_SENTINEL = "__HEBREW_RETRY__"
 _SANITIZE_HB_LINE = re.compile(
     r"[^\u0590-\u05FF\uFB1D-\uFB4FA-Za-z0-9\u00C0-\u024F\s,.:;!?%()\"\'-]"
 )
@@ -166,6 +179,133 @@ def _strip_erroneous_israel_subject_prefix(hebrew: str, source_blob: str) -> str
         return s
     # Common bad pattern: "ישראל ש-Microsoft ..." / "ישראל ש Microsoft ..."
     return re.sub(r"^ישראל\s*ש\s*[-]?\s*", "", s, count=1).lstrip()
+
+
+def non_hebrew_prose_leak_reason(text: str) -> str | None:
+    """None if summary looks like Hebrew prose; else a short reject reason."""
+    heb = len(_HEBREW_CHAR_RE.findall(text))
+    lat = len(_LATIN_LETTER_RE.findall(text))
+    total = heb + lat
+    if total == 0:
+        return "no Hebrew letters in summary"
+    if heb < _HEBREW_PROSE_MIN_LETTERS:
+        return f"too few Hebrew letters ({heb})"
+    ratio = heb / total
+    if total >= 25 and ratio < _HEBREW_PROSE_MIN_RATIO:
+        return f"summary mostly non-Hebrew ({heb}/{total} Hebrew letters)"
+    if _POLISH_PROSE_WORD_RE.search(text) and ratio < 0.55:
+        return "Polish source wording in summary (must be Hebrew prose)"
+    if ratio < 0.45 and _POLISH_DIACRITIC_RE.search(text):
+        return "Polish characters in mostly non-Hebrew summary"
+    return None
+
+
+def _hebrew_only_retry_note(*, prose_leak: bool = False) -> str:
+    leak = (
+        " Your previous reply pasted Polish/Latin sentences — forbidden."
+        if prose_leak
+        else ""
+    )
+    return (
+        "You must write the summary using Hebrew letters (עברית)."
+        f"{leak} "
+        "1-2 factual sentences in Modern Hebrew; Latin script only for proper names "
+        "(people, brands, cities, acronyms — e.g. Nawrocki, Travoprost, Warszawa). "
+        "Never output Polish, German, or English sentence prose. "
+        f"Max {_SUMMARY_CAP} words."
+    )
+
+
+def _postprocess_hebrew_summary(result: str, source_blob: str) -> tuple[str | None, str | None]:
+    """Sanitize and validate Stage 2 output. Returns (summary, None) or (None, reason)."""
+    result = strip_leading_summary_labels(result)
+    result = _sanitize_hebrew_summary_line(result)
+    if not result:
+        return None, "sanitization left empty result"
+
+    if not _HEBREW_CHAR_RE.search(result):
+        return result, _HEBREW_RETRY_SENTINEL
+
+    m_heb = _HEBREW_CHAR_RE.search(result)
+    result = result[m_heb.start() :].strip()
+    if len(result) < 15:
+        return None, "Hebrew too short after removing leading non-Hebrew (likely echoed input)"
+
+    _hebrew_glue = r"\u0590-\u05FF\uFB1D-\uFB4F"
+    _latin_glue = r"A-Za-z\u00C0-\u024F"
+    result = re.sub(rf"[{_hebrew_glue}]+(?=[{_latin_glue}])", "", result)
+    result = re.sub(rf"(?<=[{_latin_glue}])[{_hebrew_glue}]+", "", result)
+    result = result.strip()
+
+    hebrew_re = _HEBREW_CHAR_RE
+    latin_re = re.compile(r"[A-Za-z]")
+    for token in re.split(r"[\s\-]+", result):
+        if hebrew_re.search(token) and latin_re.search(token):
+            return None, f"mixed-script word detected: '{token}'"
+
+    prose_leak = non_hebrew_prose_leak_reason(result)
+    if prose_leak:
+        return result, _HEBREW_RETRY_SENTINEL
+
+    word_count = len(result.split())
+    if word_count > MAX_SUMMARY_WORDS_HARD:
+        return None, f"summary too long ({word_count} words, max {MAX_SUMMARY_WORDS})"
+
+    if _source_suggests_warsaw_area_not_israel(source_blob) and _hebrew_mentions_major_israeli_city(
+        result
+    ):
+        log.warning("GEO guard: Warsaw-area Polish source but Hebrew cited Tel Aviv/Jerusalem")
+        return None, "GEO mismatch (Warsaw/Syrenka story vs Israeli city in Hebrew; re-run)"
+
+    result = _strip_erroneous_israel_subject_prefix(result, source_blob)
+    if not result:
+        return None, "empty after stripping erroneous Israel prefix"
+
+    if should_reject_hebrew_scope_meta_summary(result):
+        return None, hebrew_scope_meta_summary_skip_reason()
+
+    if should_skip_public_opinion_poll_blob(result):
+        return None, public_opinion_poll_skip_reason()
+
+    if should_skip_fuel_price_churn_blob(result):
+        return None, fuel_price_churn_skip_reason()
+
+    return result, None
+
+
+def _stage2_response_to_summary(
+    raw: str,
+    *,
+    body_available: bool,
+) -> tuple[str | None, str | None]:
+    """Normalize a raw Stage 2 model line before postprocess."""
+    result = (raw or "").strip()
+    if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
+        return None, None
+    if result.upper().startswith("INSUF") or result.startswith("לא מספיק"):
+        if not body_available:
+            return None, "body not accessible (paywall or blocked)"
+        return None, "insufficient content even with full article"
+    if len(result) < 15:
+        return None, "response too short after retry"
+    return result, "__CONTINUE__"
+
+
+def _run_hebrew_retry(
+    call_stage2,
+    text: str,
+    stage2_limit: int,
+    *,
+    prose_leak: bool,
+) -> tuple[str | None, str | None]:
+    note = _hebrew_only_retry_note(prose_leak=prose_leak)
+    response = call_stage2(f"Article: {text[:stage2_limit]}\n\n{note}")
+    finish = response.choices[0].finish_reason
+    if finish == "content_filter":
+        return None, "blocked by content policy (content_filter)"
+    if finish == "length":
+        return None, "response truncated"
+    return (response.choices[0].message.content or "").strip(), None
 
 
 def classify(client: OpenAI, text: str):
@@ -236,6 +376,13 @@ def summarize_in_hebrew(
     if should_skip_pan_eu_generic_property_guide(article["title"], article["summary"]):
         return None, pan_eu_property_guide_skip_reason()
 
+    if should_skip_fuel_price_churn_teaser(
+        article.get("title") or "",
+        article.get("summary") or "",
+        article.get("link") or "",
+    ):
+        return None, fuel_price_churn_skip_reason()
+
     if should_skip_private_medical_fundraiser_teaser(article["title"], article["summary"]):
         return None, crowdfunding_medical_skip_reason()
 
@@ -284,6 +431,17 @@ def summarize_in_hebrew(
     )
     if should_skip_baltic_marine_wildlife_without_poland_blob(pl_baltic_blob):
         return None, baltic_marine_wildlife_no_poland_skip_reason()
+
+    if should_skip_fuel_price_churn_blob(
+        (article.get("title") or "")
+        + "\n"
+        + (article.get("summary") or "")
+        + "\n"
+        + (article.get("link") or "")
+        + "\n"
+        + (body or "")[:12000]
+    ):
+        return None, fuel_price_churn_skip_reason()
 
     decision = classify(client, text)
     if decision == "SKIP":
@@ -372,78 +530,28 @@ def summarize_in_hebrew(
     if len(result) < 15:
         return None, "response too short after retry"
 
-    result = strip_leading_summary_labels(result)
-
-    result = _sanitize_hebrew_summary_line(result)
-    if not result:
-        return None, "sanitization left empty result"
-
-    if not _HEBREW_CHAR_RE.search(result):
-        log.warning("Stage 2: no Hebrew after sanitize — retry with Hebrew-only instruction")
-        hebrew_only_note = (
-            "You must write the summary using Hebrew letters (עברית). Your previous reply had no Hebrew. "
-            "1-2 factual sentences; Latin script only for proper names (e.g. Nawrocki, Orbán, WP). "
-            f"Max {_SUMMARY_CAP} words. Do not output English-only or Polish-only text."
+    result, stage_err = _postprocess_hebrew_summary(result, text)
+    if stage_err == _HEBREW_RETRY_SENTINEL:
+        log.warning("Stage 2: non-Hebrew output — retry with Hebrew-only instruction")
+        raw_retry, retry_err = _run_hebrew_retry(
+            call_stage2,
+            text,
+            stage2_limit,
+            prose_leak=bool(non_hebrew_prose_leak_reason(result or "")),
         )
-        response = call_stage2(f"Article: {text[:stage2_limit]}\n\n{hebrew_only_note}")
-        finish = response.choices[0].finish_reason
-        if finish == "content_filter":
-            return None, "blocked by content policy (content_filter)"
-        if finish == "length":
-            return None, "response truncated"
-        result = (response.choices[0].message.content or "").strip()
-        if result.upper().startswith("SKIP") or result.startswith("סקיפ"):
-            return None, None
-        is_insuf = result.upper().startswith("INSUF") or result.startswith("לא מספיק")
-        if is_insuf:
-            if not body_available:
-                return None, "body not accessible (paywall or blocked)"
-            return None, "insufficient content even with full article"
-        if len(result) < 15:
-            return None, "no Hebrew characters in result"
-        result = strip_leading_summary_labels(result)
-        result = _sanitize_hebrew_summary_line(result)
-        if not result:
-            return None, "sanitization left empty result"
-        if not _HEBREW_CHAR_RE.search(result):
-            return None, "no Hebrew characters in result"
-
-    m_heb = _HEBREW_CHAR_RE.search(result)
-    result = result[m_heb.start() :].strip()
-    if len(result) < 15:
-        return None, "Hebrew too short after removing leading non-Hebrew (likely echoed input)"
-
-    _hebrew_glue = r"\u0590-\u05FF\uFB1D-\uFB4F"
-    _latin_glue = r"A-Za-z\u00C0-\u024F"
-    result = re.sub(rf"[{_hebrew_glue}]+(?=[{_latin_glue}])", "", result)
-    result = re.sub(rf"(?<=[{_latin_glue}])[{_hebrew_glue}]+", "", result)
-    result = result.strip()
-
-    hebrew_re = _HEBREW_CHAR_RE
-    latin_re = re.compile(r"[A-Za-z]")
-    for token in re.split(r"[\s\-]+", result):
-        if hebrew_re.search(token) and latin_re.search(token):
-            return None, f"mixed-script word detected: '{token}'"
-
-    word_count = len(result.split())
-    if word_count > MAX_SUMMARY_WORDS_HARD:
-        return None, f"summary too long ({word_count} words, max {MAX_SUMMARY_WORDS})"
-
-    if _source_suggests_warsaw_area_not_israel(text) and _hebrew_mentions_major_israeli_city(
-        result
-    ):
-        log.warning("GEO guard: Warsaw-area Polish source but Hebrew cited Tel Aviv/Jerusalem")
-        return None, "GEO mismatch (Warsaw/Syrenka story vs Israeli city in Hebrew; re-run)"
-
-    result = _strip_erroneous_israel_subject_prefix(result, text)
-    if not result:
-        return None, "empty after stripping erroneous Israel prefix"
-
-    if should_reject_hebrew_scope_meta_summary(result):
-        return None, hebrew_scope_meta_summary_skip_reason()
-
-    if should_skip_public_opinion_poll_blob(result):
-        return None, public_opinion_poll_skip_reason()
+        if retry_err:
+            return None, retry_err
+        parsed, parse_err = _stage2_response_to_summary(raw_retry, body_available=body_available)
+        if parse_err != "__CONTINUE__":
+            return parsed, parse_err
+        result, stage_err = _postprocess_hebrew_summary(parsed, text)
+        if stage_err == _HEBREW_RETRY_SENTINEL:
+            leak = non_hebrew_prose_leak_reason(result or raw_retry or "")
+            if not _HEBREW_CHAR_RE.search(raw_retry or ""):
+                return None, "no Hebrew characters in result"
+            return None, f"non-Hebrew prose in summary ({leak or 'Hebrew-only retry failed'})"
+    if stage_err:
+        return None, stage_err
 
     return result, None
 
