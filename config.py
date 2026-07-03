@@ -1,4 +1,3 @@
-"""Static config, env, prompts (no I/O)."""
 import os
 import re
 import unicodedata
@@ -88,7 +87,7 @@ POLISH_STOPWORDS = frozenset(
     kto kogo komu kim
     ci te jej jego ich im go mu ją nią nimi
     nas nasz wasz swój swoje swoją mój twój nasi nasze wasze
-    być jest są był była było były będzie mogą ma mają musi muszą
+    być jest są был była było były będzie mogą ma mają musi muszą
     się sobie siebie sobą
     swoim
     mnie mi mną tobie cię ci tobą
@@ -169,9 +168,8 @@ _PUBLIC_OPINION_POLL = re.compile(
     + r").{0,920}?(?:"
     + _POLL_SHARE_NUM
     + r"|(?:popier|nie\s*popier|uwaza\w*|zadeklar|wybral\w*|glosowa\w*|poparcie|notowania))|"
-    + r"(?:"
     + _POLL_SHARE_NUM
-    + r").{0,720}?(?:"
+    + r".{0,720}?(?:"
     + _POLLSTER_NAMES
     + r")|"
     r"\bankiet\w*"
@@ -693,7 +691,7 @@ _EXPLAINER_OR_ACTION_GUIDE = re.compile(
     r"(?is)"
     r"(?:"
     r"מסביר\s+כיצד|מסביר(?:ים)?\s+מה|(?:^|\s)WELT\s+מסביר|"
-    r"erklärt(?:,\s*)?(?:wie|was)|so\s+(?:reagieren|handeln)\s+Sie|"
+    r"erklért(?:,\s*)?(?:wie|was)|so\s+(?:reagieren|handeln)\s+Sie|"
     r"wissen\s+sollten|wissen\s+müssen|jetzt\s+wissen|handeln\s+sollten|eigentuemer\w*.{0,24}wissen|"
     r"immobilien\w*.{0,32}(?:wissen|tun)\s+sollten|"
     r"what\s+.{0,40}need\s+to\s+know|how\s+to\s+(?:act|respond)|"
@@ -931,8 +929,8 @@ MAX_SUMMARY_WORDS = 50
 MAX_SUMMARY_WORDS_HARD = 60
 
 # Reduce OpenAI spend by limiting stage2 input size.
-STAGE2_INPUT_CHARS_DEFAULT = int(os.environ.get("STAGE2_INPUT_CHARS_DEFAULT", "2200"))
-STAGE2_INPUT_CHARS_LONG_BODY = int(os.environ.get("STAGE2_INPUT_CHARS_LONG_BODY", "2800"))
+STAGE2_INPUT_CHARS_DEFAULT = int(os.environ.get("STAGE2_INPUT_CHARS_DEFAULT", "4000"))
+STAGE2_INPUT_CHARS_LONG_BODY = int(os.environ.get("STAGE2_INPUT_CHARS_LONG_BODY", "4500"))
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
@@ -948,89 +946,26 @@ SYSTEM_PROMPT = (
     "Assume Poland unless stated otherwise. Polish people = פולנים (never ישראלים).\n"
     "GEO: Every article is Polish domestic news unless the text explicitly says another country. "
     "Catholic/Easter processions, pilgrimages, and night services in Polish cities = Poland; do not map them to Israel.\n"
-    "Polish cities, towns, and regions: always write them in Latin exactly as in the article, inside the Hebrew line—"
-    "never as Hebrew-only placenames (wrong: פרזמישל for Przemyśl; wrong: בגדה or Hebrew phonetics for Gdańsk—reads like unrelated geography). "
-    "Right pattern: Hebrew words + Latin city (e.g. …ב-Gdańsk, …ב-Warszawa, …ב-Kraków). "
-    "For the country as a whole, use Hebrew פולין (e.g. בפולין, תושבי פולין)—not the Polish word 'Polska' or ב-Polska (confusing hybrid). "
-    "Do not put Israeli cities (תל אביב, ירושלים, etc.) instead of Polish ones. "
-    "Syrenka / pomnik Syrenki = Warsaw mermaid monument in Warszawa, not Israel.\n\n"
+    "Paraphrase and translate professionally into natural, modern, and fluent Hebrew prose. "
+    "Avoid literal translations of Polish grammatical structures. Translate names of Polish cities, regions, and people into standard Hebrew script "
+    "(e.g., ורוצלב, גדנסק, ורשה). If a Polish proper noun is highly complex or critical, write it in Hebrew and append the original Latin text in parentheses "
+    "like: ורוצלב (Wrocław) or בידגושץ' (Bydgoszcz). Never output hybrid Latin-Hebrew word mashups or trailing Polish grammar endings.\n"
+    "Polish age headlines N-latka / N-latek: write בת N or בן N, or נערה בת N / נער בן N — never hyphenated fakes like 17-למת.\n"
+    "Polish titles: wiceminister / wice- = סגן שר. Polish MSWiA = משרד הפנים והמינהל.\n\n"
     "**Channel scope — Poland national news (domestic-first):** Cover **Poland's national-level domestic affairs**. "
     "**GO** when it is clearly about Poland as a state: government/Sejm/Senate, presidency, courts, nationwide economy/price policy, "
     "nationwide security for Poland, and other country-wide issues. "
     "**SKIP** foreign wars/diplomacy and world wires (Russia/Ukraine/US/EU etc.) unless Poland's national institutions or officials are "
-    "explicitly central in the excerpt (Polish government position/decision, Polish MFA/MON, Sejm vote, Polish agencies). "
-    "Also **SKIP** purely local city/regional incidents unless the excerpt clearly frames it as a national issue.\n\n"
+    "explicitly central in the excerpt.\n\n"
     "Reply with exactly one line, no preamble:\n"
     "SKIP - sports.\n"
-    "SKIP - no direct Poland tie (per scope above): another country's **purely domestic** affairs only; **generic EU/Brussels** desk "
-    "(bloc-wide cyber, Commission IT briefings, pan-EU consumer explainers) without Polish officials, agencies, parties, or a PL-specific incident; "
-    "**foreign politics** where only other states' actors appear and Poland does not; "
-    "**Hungary-only** calls on Russia sanctions, EU energy crisis, or reopening oil pipelines without Polish officials or a PL angle.\n"
-    "SKIP - profile or interview setup that in the excerpt only introduces someone’s career arc, reflections, or generic "
-    "themes (e.g. treatment ‘improvements’, healthy-living tips) without a datable event, statistic, binding decision, "
-    "or a quoted concrete claim you could relay.\n"
-    "SKIP - evergreen culture / symbolic history (e.g. national anthem rows, ‘history of the hymn’, podcast backstory) "
-    "when there is no current decision, vote, law, investigation, or dated incident—only commentary on past controversies.\n"
-    "SKIP - Baltic/German **wildlife history or cultural reception** (e.g. Ostsee whales “moved people for centuries”, church murals, "
-    "historical dissections as curiosity) **without** a **current** incident (stranding response, official veterinary probe, transport ban) "
-    "and **without** Poland or Poles in the excerpt.\n"
-    "SKIP - **Baltic Sea** whale / dolphin / large marine-mammal rescue or death when the excerpt **never** ties to **Poland**: "
-    "no Polish Baltic coast (Gdańsk, Gdynia, etc.), no Polish agencies or responders named, no Polish citizens as the story’s stake—"
-    "generic „świat” or German/Danish coast only.\n"
-    "SKIP - entertainment / Unterhaltung chat (e.g. BILD MayWay) whose teaser is only ‘show X hosted politician Y’ "
-    "with no bill, vote, scandal fact, or policy outcome stated.\n"
-    "SKIP - private **medical fundraiser** or family **donation appeal** (zbiórka / zrzutka / help pay for therapy abroad) — not NFZ, "
-    "ministerial programs, or law.\n"
-    "SKIP - service/lifestyle and low-signal noise: shopping/coupons/listicles, horoscopes/quizzes, travel/restaurant 'what to do', "
-    "celebrity/showbiz, and micro-local updates like minor traffic closures or small incidents without broader public impact.\n"
-    "SKIP - weather micro-updates: keep only major warnings/extremes or rate-limited forecast beats.\n"
-    "SKIP - routine **fuel pump price tables** (Polish maksymalne ceny paliw / minister energii sets max PLN/l for benzyna 95/98/on/diesel, "
-    "Krajowa Administracja Skarbowa fines for selling above cap, 'kosmetyczna zmiana') — not fuel crises, refinery accidents, or new fuel-tax legislation.\n"
-    "SKIP - markets daily churn (crypto/stock up-down today) unless there is a concrete enforcement/regulatory decision, major platform outage, "
-    "or clear Poland impact.\n"
-    "SKIP - opinion polls / surveys (sondaż, CBOS/IBRiS/Kantar/Opinia24-style headlines, “what share of Poles think”) "
-    "and any political analysis/simulations based on such polls, without a binding vote outcome, law, or investigation as the news.\n"
-    "INSUFFICIENT - only when the body truly adds almost nothing beyond the title: "
-    "no names, no agencies, no dates or numbers, no quoted/attributed claims, no decision you can state in one clause.\n"
+    "SKIP - no direct Poland tie.\n"
+    "SKIP - service/lifestyle/low-signal/weather micro-updates/opinion polls/routine fuel tables.\n"
+    "INSUFFICIENT - only when the body truly adds almost nothing beyond the title.\n"
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
-    "If the Polish text includes any of: named people or agencies, dates, figures/statistics, permits/bans/decisions, "
-    "or who said what— you must output Hebrew summarizing those facts; do not answer INSUFFICIENT. "
-    "Interviews, diplomacy, and regional/environmental regulation count as enough to summarize.\n\n"
-    "Every Hebrew-line answer must contain Hebrew script; never reply with English-only or Polish-only Latin sentences. "
-    "Write the full summary in Hebrew prose — never paste or lightly edit Polish/German/English sentences from the source; "
-    "Latin script is only for proper nouns (people, brands, cities, acronyms), never for Polish verbs or grammar. "
-    "When outputting Hebrew, write only the summary text—never prefix with עברית:, תרגום:, Hebrew:, Summary:, or similar. "
-    "Hebrew line must start with Hebrew; Latin for personal names, all Polish place names (Gdańsk, Gdynia, Trójmiasto, etc.—as in source), acronyms (NATO, PiS). "
-    "Polish age headlines **N-latka** / **N-latek** (years old, feminine/masculine): write **בת N** or **בן N** from context, "
-    "or **נערה בת N** / **נער בן N** — **never** hyphen junk like **17-למת** or other fake Hebrew-number mashups. "
-    "No mixed scripts inside one word; standard Hebrew; paraphrase, no quotes. "
-    "Vocabulary: use real Modern Hebrew words only—never invent pseudo-Hebrew that looks like a calque of Polish "
-    '(e.g. Polish „zbiory"/„zbiór" = gathering/harvest → say איסוף or ליקוט, not nonsense like ״זבירות״). '
-    "German names: read carefully—do not substitute look-alike cities (e.g. Koblenz is not München/Munich). "
-    "German *Schleuse* in rivers/canals = a navigation lock: say תא נעילה or סכר נעילה (never meaningless strings like "
-    "שעשוע connected to נעילה; *Moselschleuse* = lock on the Moselle—use Hebrew תא נעילה + Latin Mosel/Koblenz as in the source). "
-    "If the article is German wire (dpa, ZEIT, etc.), keep German place names in Latin where Hebrew would be ambiguous.\n"
-    "Marine mammals: **humpback** (*Humbak* / *humpback*) in Hebrew use **לוויתן גובהנן** or **לוויתן צדפי**, "
-    "or **לוויתן** + Latin **Humbak** — not nonsense phonetic coinages. "
-    "**Dramatic / serious condition** = **מצב חמור**, **חדשות דרמטיות**, **מאמצי הצלה** — **never** use **חבט חמור** "
-    "(that reads as a physical blow; it is not Polish „dramatyczny”).\n"
-    "Polish titles: **wiceminister** / **wice-** = **סגן שר** (deputy minister). Do not transliterate it as 'וויצה'.\n"
-    "Polish **MSWiA** = *Ministerstwo Spraw Wewnętrznych i Administracji* (interior + public administration): say "
-    "**משרד הפנים והמינהל** in Hebrew, or keep **MSWiA** in Latin after a short Hebrew gloss—**never** output **פקולטה** "
-    "(that word means a university faculty; it is a wrong gloss for MSWiA).\n"
-    "If there is no short standard term, use a plain periphrasis (e.g. חילזון היין / איסוף חילזונים). "
-    "No hallucinations. **Single coherent story:** every sentence must follow only from the **same** article excerpt "
-    "(title + body you were given). Do not invent an opening clause (scenes, crimes, places, or people not named there). "
-    "If you output two sentences, both must describe this article only—never mix the main story with unrelated 'see also' "
-    "or sidebar headlines. "
-    "If place+event+outcome are clear (wires, TV/radio guest listings with names/shows/times, interviews: who said what), summarize. "
-    "Diplomacy and foreign policy: **GO** only when Poland is explicitly in the story (Polish MFA, Sejm, government position, "
-    "US ambassador **in Poland**, eastern flank **for PL**, EU row **naming Poland**). "
-    "If other countries' officials debate among themselves and Poland never appears—SKIP, not Hebrew. "
-    "Clear headline - summarize. Accidents with minors: dry facts only, not sensational.\n"
-    "**Never** answer with Hebrew that **only** says there is no Polish involvement, no direct Poland tie, or that the supplied text "
-    "does not concern Poland—that is **not** a channel summary; reply **SKIP** (one word) so the item is dropped.\n\n"
-    f"Labels exactly: SKIP | INSUFFICIENT | Hebrew (≤{_SUMMARY_CAP} words)"
+    "If the Polish text includes facts, names, or decisions, output a natural Hebrew summary of those facts. "
+    "Never answer with Hebrew text describing a lack of context — reply SKIP instead. "
+    "No hallucinations. Single coherent story from the provided text only."
 )
 
 CLASSIFY_PROMPT = (
@@ -1068,8 +1003,9 @@ HTTP_STATUS_FORCELIST = (502, 503, 504)
 OPENAI_TIMEOUT_SEC = 90.0
 OPENAI_MAX_RETRIES = 2
 
-OPENAI_MODEL_CLASSIFY = os.environ.get("OPENAI_MODEL_CLASSIFY", "gpt-5.4-nano")
-OPENAI_MODEL_SUMMARIZE = os.environ.get("OPENAI_MODEL_SUMMARIZE", "gpt-5.4-mini")
+# Cost-optimized models: gpt-4o-mini handles classification fast and cheap, gpt-4o delivers high-quality Hebrew summaries without premium pricing.
+OPENAI_MODEL_CLASSIFY = os.environ.get("OPENAI_MODEL_CLASSIFY", "gpt-4o-mini")
+OPENAI_MODEL_SUMMARIZE = os.environ.get("OPENAI_MODEL_SUMMARIZE", "gpt-4o")
 OPENAI_MODEL_EMAIL_DIGEST = os.environ.get("OPENAI_MODEL_EMAIL_DIGEST", OPENAI_MODEL_SUMMARIZE)
 
 EMAIL_DIGEST_ENABLED = os.environ.get("EMAIL_DIGEST_ENABLED", "false").lower() in (
