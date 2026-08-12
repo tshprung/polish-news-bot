@@ -36,7 +36,7 @@ from dedup import (
     article_is_pl_tk_judge_oath_beat,
     article_is_pl_weather_forecast_beat,
     deduplicate,
-    record_sent_snapshot,
+    save_dedup_snapshot,
 )
 from http_util import make_http_session, request_timeout
 from email_digest import iso_utc_now, score_and_classify_item, send_email_digest
@@ -135,7 +135,13 @@ def run_ingestion():
                 if TELEGRAM_LINK_PREVIEW_ENABLED:
                     message = f"{message}\n{article['link']}"
                 send_to_telegram(session, message, timeout=to)
-                record_sent_snapshot(conn, article)
+                save_dedup_snapshot(
+                    conn,
+                    article["id"],
+                    article.get("title", ""),
+                    article.get("summary", ""),
+                    int(article.get("sort_epoch") or time.time()),
+                )
                 if article_is_pl_weather_forecast_beat(article):
                     record_weather_post(conn)
                 if article_is_de_pl_fuel_tourism_beat(article):
