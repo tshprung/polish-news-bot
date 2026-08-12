@@ -72,7 +72,9 @@ def _init_email_digest_items(conn: sqlite3.Connection) -> None:
         "category TEXT NULL, "
         "region TEXT NULL, "
         "email_digest_sent_at TEXT NULL, "
-        "email_digest_slot TEXT NULL"
+        "email_digest_slot TEXT NULL, "
+        "telegram_digest_sent_at TEXT NULL, "
+        "telegram_digest_slot TEXT NULL"
         ")"
     )
     conn.execute(
@@ -93,15 +95,19 @@ def _init_email_digest_items(conn: sqlite3.Connection) -> None:
     )
 
     cols = {r[1] for r in conn.execute("PRAGMA table_info(email_digest_items)").fetchall()}
-    if "published_epoch" not in cols:
-        try:
-            conn.execute("ALTER TABLE email_digest_items ADD COLUMN published_epoch INTEGER NULL")
-        except sqlite3.OperationalError:
-            pass
+    for col, ddl in (
+        ("published_epoch", "ALTER TABLE email_digest_items ADD COLUMN published_epoch INTEGER NULL"),
+        ("telegram_digest_sent_at", "ALTER TABLE email_digest_items ADD COLUMN telegram_digest_sent_at TEXT NULL"),
+        ("telegram_digest_slot", "ALTER TABLE email_digest_items ADD COLUMN telegram_digest_slot TEXT NULL"),
+    ):
+        if col not in cols:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
 
 
 def _migrate_weather_rate_to_channel_limits(conn: sqlite3.Connection) -> None:
-    """Copy legacy weather_post_rate row into channel_rate_limits once."""
     try:
         row = conn.execute(
             "SELECT last_sent_epoch FROM weather_post_rate WHERE singleton = 1"
@@ -134,7 +140,6 @@ def record_rate_limit_hit(conn: sqlite3.Connection, rate_key: str) -> None:
 
 
 def weather_post_allowed(conn: sqlite3.Connection, interval_sec: int) -> bool:
-    """False if a Polish weather / IMGW-style post was sent within the last interval_sec."""
     return rate_limit_allowed(conn, RATE_LIMIT_KEY_WEATHER, interval_sec)
 
 
@@ -198,46 +203,55 @@ def store_email_digest_item(
     return bool(cur.rowcount)
 
 
-def get_unsent_email_digest_items(conn: sqlite3.Connection) -> list[dict]:
+def get_unsent_email_digest_items(conn) -> list[dict]:
     cur = conn.execute(
         "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, "
         "summary_he, importance_score, category, region "
-        "FROM email_digest_items "
-        "WHERE email_digest_sent_at IS NULL "
+        "FROM email_digest_items WHERE email_digest_sent_at IS NULL "
         "ORDER BY importance_score DESC, id ASC"
     )
-    rows = []
-    for r in cur.fetchall():
-        rows.append({
-            "id": r[0],
-            "article_id": r[1],
-            "url": r[2],
-            "title": r[3],
-            "source": r[4],
-            "published_at": r[5],
-            "published_epoch": r[6],
-            "created_at": r[7],
-            "summary_he": r[8],
-            "importance_score": r[9],
-            "category": r[10],
-            "region": r[11],
-        })
-    return rows
+    return _rows_to_digest_items(cur.fetchall())
 
 
-def mark_email_digest_items_sent(
-    conn: sqlite3.Connection,
-    item_ids: list[int],
-    slot: str,
-    sent_at_iso: str,
-) -> None:
+def get_unsent_telegram_digest_items(conn) -> list[dict]:
+    cur = conn.execute(
+        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, "
+        "summary_he, importance_score, category, region "
+        "FROM email_digest_items WHERE telegram_digest_sent_at IS NULL "
+        "ORDER BY importance_score DESC, published_epoch DESC, id DESC"
+    )
+    return _rows_to_digest_items(cur.fetchall())
+
+
+def _rows_to_digest_items(rows) -> list[dict]:
+    return [
+        {
+            "id": r[0], "article_id": r[1], "url": r[2], "title": r[3], "source": r[4],
+            "published_at": r[5], "published_epoch": r[6], "created_at": r[7],
+            "summary_he": r[8], "importance_score": r[9], "category": r[10], "region": r[11],
+        }
+        for r in rows
+    ]
+
+
+def mark_email_digest_items_sent(conn, item_ids: list[int], slot: str, sent_at_iso: str) -> None:
     if not item_ids:
         return
     placeholders = ",".join("?" for _ in item_ids)
     conn.execute(
-        f"UPDATE email_digest_items "
-        f"SET email_digest_sent_at = ?, email_digest_slot = ? "
+        f"UPDATE email_digest_items SET email_digest_sent_at = ?, email_digest_slot = ? "
         f"WHERE id IN ({placeholders}) AND email_digest_sent_at IS NULL",
+        (sent_at_iso, slot, *item_ids),
+    )
+
+
+def mark_telegram_digest_items_sent(conn, item_ids: list[int], slot: str, sent_at_iso: str) -> None:
+    if not item_ids:
+        return
+    placeholders = ",".join("?" for _ in item_ids)
+    conn.execute(
+        f"UPDATE email_digest_items SET telegram_digest_sent_at = ?, telegram_digest_slot = ? "
+        f"WHERE id IN ({placeholders}) AND telegram_digest_sent_at IS NULL",
         (sent_at_iso, slot, *item_ids),
     )
 
