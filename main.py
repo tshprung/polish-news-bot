@@ -23,6 +23,7 @@ from database import (
     get_unsent_email_digest_items,
     init_db,
     mark_email_digest_items_sent,
+    mark_telegram_digest_items_sent,
     record_fuel_tourism_post,
     record_tk_judge_oath_post,
     record_weather_post,
@@ -93,19 +94,13 @@ def run_ingestion():
                 continue
 
             immediate_allowed = True
-            if article_is_pl_weather_forecast_beat(article) and not weather_post_allowed(
-                conn, WEATHER_POST_MIN_INTERVAL_SEC
-            ):
+            if article_is_pl_weather_forecast_beat(article) and not weather_post_allowed(conn, WEATHER_POST_MIN_INTERVAL_SEC):
                 immediate_allowed = False
                 log.info("Immediate alert suppressed (weather rate %ds): %s", WEATHER_POST_MIN_INTERVAL_SEC, article["title"][:70])
-            if article_is_de_pl_fuel_tourism_beat(article) and not fuel_tourism_post_allowed(
-                conn, FUEL_TOURISM_POST_MIN_INTERVAL_SEC
-            ):
+            if article_is_de_pl_fuel_tourism_beat(article) and not fuel_tourism_post_allowed(conn, FUEL_TOURISM_POST_MIN_INTERVAL_SEC):
                 immediate_allowed = False
                 log.info("Immediate alert suppressed (fuel tourism rate %ds): %s", FUEL_TOURISM_POST_MIN_INTERVAL_SEC, article["title"][:70])
-            if article_is_pl_tk_judge_oath_beat(article) and not tk_judge_oath_post_allowed(
-                conn, TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC
-            ):
+            if article_is_pl_tk_judge_oath_beat(article) and not tk_judge_oath_post_allowed(conn, TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC):
                 immediate_allowed = False
                 log.info("Immediate alert suppressed (TK judge rate %ds): %s", TK_JUDGE_OATH_POST_MIN_INTERVAL_SEC, article["title"][:70])
 
@@ -122,25 +117,16 @@ def run_ingestion():
 
             try:
                 score, category, region = score_and_classify_item(
-                    article.get("title", ""),
-                    article.get("source", ""),
-                    article.get("link", ""),
-                    hebrew,
+                    article.get("title", ""), article.get("source", ""), article.get("link", ""), hebrew
                 )
             except Exception as e:
                 log.warning("Importance scoring failed: %s", e)
                 score, category, region = 0, "other", None
 
-            stored = store_email_digest_item(
-                conn,
-                article,
-                hebrew,
-                importance_score=score,
-                category=category,
-                region=region,
+            store_email_digest_item(
+                conn, article, hebrew, importance_score=score, category=category, region=region
             )
-            if stored:
-                log.info("Queued for digest (score=%d category=%s): %s", score, category, article["title"][:70])
+            log.info("Queued for digest (score=%d category=%s): %s", score, category, article["title"][:70])
 
             if immediate_allowed and score >= min_score:
                 body = html.escape(hebrew, quote=False)
@@ -156,6 +142,10 @@ def run_ingestion():
                     record_fuel_tourism_post(conn)
                 if article_is_pl_tk_judge_oath_beat(article):
                     record_tk_judge_oath_post(conn)
+                # Do not repeat an alert in the evening digest.
+                row = conn.execute("SELECT id FROM email_digest_items WHERE article_id = ?", (article["id"],)).fetchone()
+                if row:
+                    mark_telegram_digest_items_sent(conn, [int(row[0])], "alert", iso_utc_now())
                 log.info("Sent high-impact alert (score=%d): %s", score, article["title"][:70])
                 time.sleep(5)
             else:
