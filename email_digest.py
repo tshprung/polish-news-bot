@@ -57,9 +57,9 @@ def _ensure_large_font_html(html_body: str) -> str:
     return "<html><head>" + style + "</head><body>" + s + "</body></html>"
 
 
-
 def score_and_classify_item(title: str, source: str, url: str, summary_he: str) -> tuple[int, str, str | None]:
     blob = f"{title}\n{source}\n{url}\n{summary_he}".lower()
+    score = 0
 
     is_weather = bool(re.search(r"\bm(e|ę)z?g\s*אויר|pogod|prognoz|temperatur|burz|mroz|przymroz", blob))
     is_poll = bool(re.search(r"sonda(?:z|ż|)\b|sond[eę]\b|cbos|ibris|kantar|opinia24|pollster|united", blob))
@@ -76,9 +76,7 @@ def score_and_classify_item(title: str, source: str, url: str, summary_he: str) 
         region = "Wrocław / Dolny Śląsk"
         score += 25 if re.search(r"\bwroc[łl]aw\b|\bwroclaw\b", blob) else 20
 
-    serious_crime = bool(
-        re.search(r"zab[oó]jstw|morderstw|napad|gwa[łl]t|porwan", blob)
-    )
+    serious_crime = bool(re.search(r"zab[oó]jstw|morderstw|napad|gwa[łl]t|porwan", blob))
     children = bool(re.search(r"\bdzieck|\bniemowl|\bniemowle", blob))
     if serious_crime:
         score += 25
