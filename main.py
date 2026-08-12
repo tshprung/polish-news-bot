@@ -24,7 +24,6 @@ from database import (
     init_db,
     mark_email_digest_items_sent,
     record_fuel_tourism_post,
-    record_sent_snapshot,
     record_tk_judge_oath_post,
     record_weather_post,
     store_email_digest_item,
@@ -36,6 +35,7 @@ from dedup import (
     article_is_pl_tk_judge_oath_beat,
     article_is_pl_weather_forecast_beat,
     deduplicate,
+    record_sent_snapshot,
 )
 from http_util import make_http_session, request_timeout
 from email_digest import iso_utc_now, score_and_classify_item, send_email_digest
@@ -92,8 +92,6 @@ def run_ingestion():
                 _mark_seen(conn, article)
                 continue
 
-            # Rate limits now suppress only immediate Telegram alerts; the story still
-            # goes through classification and can appear in the daily digest.
             immediate_allowed = True
             if article_is_pl_weather_forecast_beat(article) and not weather_post_allowed(
                 conn, WEATHER_POST_MIN_INTERVAL_SEC
@@ -133,7 +131,6 @@ def run_ingestion():
                 log.warning("Importance scoring failed: %s", e)
                 score, category, region = 0, "other", None
 
-            # Every accepted story is retained for the daily Telegram digest.
             stored = store_email_digest_item(
                 conn,
                 article,
@@ -144,10 +141,7 @@ def run_ingestion():
             )
             if stored:
                 log.info("Queued for digest (score=%d category=%s): %s", score, category, article["title"][:70])
-            else:
-                log.info("Already queued for digest: %s", article["title"][:70])
 
-            # Only high-impact stories interrupt Telegram during the day.
             if immediate_allowed and score >= min_score:
                 body = html.escape(hebrew, quote=False)
                 footer_label = f"{article['source']} | {article['date']}"
@@ -189,8 +183,7 @@ def run_send_email_digest(slot: str) -> int:
     if reason:
         log.info("Email digest %s: %s", slot, reason)
         return 0
-    sent_at = iso_utc_now()
-    mark_email_digest_items_sent(conn, sent_ids, slot, sent_at)
+    mark_email_digest_items_sent(conn, sent_ids, slot, iso_utc_now())
     conn.commit()
     log.info("Email digest sent: slot=%s items=%d", slot, len(sent_ids))
     return 0
