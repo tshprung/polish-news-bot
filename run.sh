@@ -11,10 +11,13 @@ MODE="hourly"
 if [ "$1" = "send-email-digest" ]; then
   ARGS+=(--send-email-digest "$2")
   MODE="digest"
+elif [ "$1" = "send-telegram-digest" ]; then
+  ARGS+=(--send-telegram-digest)
+  MODE="telegram-digest"
 fi
 
 FLOCK_ARGS=(-n)
-if [ "$MODE" = "digest" ]; then
+if [ "$MODE" != "hourly" ]; then
   FLOCK_ARGS=(-w 1200)
 fi
 
