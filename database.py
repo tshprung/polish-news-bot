@@ -19,7 +19,7 @@ from config import (
 
 log = logging.getLogger(__name__)
 
-_DEDUP_RECENT_TTL_SEC = 48 * 3600
+_DEDUP_RECENT_TTL_SEC = 7 * 24 * 3600
 
 
 def init_db():
@@ -42,7 +42,7 @@ def init_db():
     )
     _migrate_weather_rate_to_channel_limits(conn)
     _init_email_digest_items(conn)
-    conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-2 days')")
+    conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-14 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
     conn.execute("DELETE FROM dedup_recent WHERE sort_epoch < ?", (cutoff,))
     conn.commit()
@@ -63,6 +63,7 @@ def _init_email_digest_items(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_email_digest_score ON email_digest_items(importance_score)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_email_digest_category ON email_digest_items(category)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_email_digest_region ON email_digest_items(region)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_digest_created_at ON email_digest_items(created_at)")
 
     cols = {r[1] for r in conn.execute("PRAGMA table_info(email_digest_items)").fetchall()}
     added_telegram_columns = False
@@ -78,6 +79,14 @@ def _init_email_digest_items(conn: sqlite3.Connection) -> None:
                     added_telegram_columns = True
             except sqlite3.OperationalError:
                 pass
+    if "telegram_digest_status" not in cols:
+        conn.execute("ALTER TABLE email_digest_items ADD COLUMN telegram_digest_status TEXT NOT NULL DEFAULT 'pending'")
+    conn.execute("UPDATE email_digest_items SET telegram_digest_status = 'sent' WHERE telegram_digest_sent_at IS NOT NULL")
+    # A missed digest should not dump an unbounded backlog into today's brief.
+    conn.execute("UPDATE email_digest_items SET telegram_digest_status = 'expired' "
+                 "WHERE telegram_digest_status = 'pending' AND created_at < ?",
+                 ((datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(),))
+
     # Existing email-digest history predates the Telegram daily brief. Do not dump
     # the backlog into the first Telegram brief after deployment.
     if added_telegram_columns:
@@ -176,7 +185,7 @@ def get_unsent_email_digest_items(conn) -> list[dict]:
 def get_unsent_telegram_digest_items(conn) -> list[dict]:
     cur = conn.execute(
         "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region "
-        "FROM email_digest_items WHERE telegram_digest_sent_at IS NULL ORDER BY importance_score DESC, published_epoch DESC, id DESC"
+        "FROM email_digest_items WHERE telegram_digest_sent_at IS NULL AND telegram_digest_status = 'pending' ORDER BY importance_score DESC, published_epoch DESC, id DESC"
     )
     return _rows_to_digest_items(cur.fetchall())
 
@@ -196,7 +205,7 @@ def mark_telegram_digest_items_sent(conn, item_ids: list[int], slot: str, sent_a
         return
     placeholders = ",".join("?" for _ in item_ids)
     conn.execute(
-        f"UPDATE email_digest_items SET telegram_digest_sent_at = ?, telegram_digest_slot = ? WHERE id IN ({placeholders}) AND telegram_digest_sent_at IS NULL",
+        f"UPDATE email_digest_items SET telegram_digest_sent_at = ?, telegram_digest_slot = ?, telegram_digest_status = 'sent' WHERE id IN ({placeholders}) AND telegram_digest_sent_at IS NULL",
         (sent_at_iso, slot, *item_ids),
     )
 
@@ -234,3 +243,15 @@ def get_new_articles(conn):
             log.error("Failed to fetch %s: %s", feed_url, e)
     conn.commit()
     return new_articles
+
+
+
+def get_recent_story_items(conn, days: int = 7) -> list[dict]:
+    """Shared memory for queued stories, immediate alerts, and delivered digests."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT id, title, summary_he FROM email_digest_items "
+        "WHERE created_at >= ? AND (telegram_digest_sent_at IS NOT NULL OR telegram_digest_status = 'pending') "
+        "ORDER BY id DESC LIMIT 2000", (cutoff,)
+    ).fetchall()
+    return [{"id": row[0], "title": row[1], "summary_he": row[2]} for row in rows]

@@ -41,6 +41,7 @@ from dedup import (
 from http_util import make_http_session, request_timeout
 from email_digest import iso_utc_now, score_and_classify_item, send_email_digest
 from summarize import openai_client, summarize_in_hebrew
+from story_memory import repeated_story_id
 from telegram_bot import notify_admin, send_to_telegram, telegram_html_anchor
 from telegram_digest import send_daily_telegram_digest
 
@@ -74,7 +75,7 @@ def run_ingestion():
         log.warning("ADMIN_TELEGRAM_ID is unset — failed articles will not DM you")
 
     new_articles = get_new_articles(conn)
-    new_articles.sort(key=lambda a: a["sort_key"])
+    new_articles.sort(key=lambda a: a["sort_key"], reverse=True)
     new_articles = deduplicate(conn, new_articles)
     log.info("Found %d new articles after deduplication", len(new_articles))
 
@@ -112,6 +113,12 @@ def run_ingestion():
                         notify_admin(session, article, skip_reason, ADMIN_TELEGRAM_ID, to)
                 else:
                     log.info("Skipped (not Poland-related): %s", article["title"][:70])
+                _mark_seen(conn, article)
+                continue
+
+            duplicate_id = repeated_story_id(conn, client, article, hebrew)
+            if duplicate_id is not None:
+                log.info("Skipped repeated facts (story=%s): %s", duplicate_id, article["title"][:70])
                 _mark_seen(conn, article)
                 continue
 
@@ -212,3 +219,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

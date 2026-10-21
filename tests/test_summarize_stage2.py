@@ -142,7 +142,7 @@ def test_wp_sondaz_skipped_before_llm(monkeypatch):
     assert client.chat.completions.create.call_count == 0
 
 
-def test_foreign_wire_skipped_before_llm(monkeypatch):
+def test_foreign_wire_scope_decided_from_content(monkeypatch):
     calls = {"fetch": 0}
 
     def _fetch(*_a, **_k):
@@ -155,12 +155,12 @@ def test_foreign_wire_skipped_before_llm(monkeypatch):
         "title": "Lista celów rosyjskiej armii. Przygotowują atak na bunkry Zełenskiego",
         "summary": "",
     }
-    client = _client_with_responses("GO", "should not run")
+    client = _client_with_responses("SKIP")
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
     assert out is None
-    assert reason == non_national_poland_skip_reason()
-    assert calls["fetch"] == 0
-    assert client.chat.completions.create.call_count == 0
+    assert reason is None
+    assert calls["fetch"] == 1
+    assert client.chat.completions.create.call_count == 1
 
 
 def test_warsaw_source_geo_mismatch_still_skips(monkeypatch):
@@ -180,3 +180,4 @@ def test_warsaw_source_geo_mismatch_still_skips(monkeypatch):
     out, reason = summarize_in_hebrew(client, MagicMock(), (1, 2), article)
     assert out is None
     assert reason is not None and "GEO mismatch" in reason
+

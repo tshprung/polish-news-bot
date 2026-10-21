@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from openai import OpenAI
 
 from config import (
+    fold_pl,
     EMAIL_DIGEST_ENABLED,
     EMAIL_TO,
     MIDDAY_HIGH_IMPORTANCE_SCORE,
@@ -59,64 +60,30 @@ def _ensure_large_font_html(html_body: str) -> str:
 
 def score_and_classify_item(title: str, source: str, url: str, summary_he: str) -> tuple[int, str, str | None]:
     blob = f"{title}\n{source}\n{url}\n{summary_he}".lower()
-    score = 0
-
-    is_weather = bool(re.search(r"\bm(e|ę)z?g\s*אויר|pogod|prognoz|temperatur|burz|mroz|przymroz", blob))
-    is_poll = bool(re.search(r"sonda(?:z|ż|)\b|sond[eę]\b|cbos|ibris|kantar|opinia24|pollster|united", blob))
-    is_sport = bool(re.search(r"\bsport\b|ekstraklas|liga|mecz|transfer|uefa|fifa", blob))
-    if is_sport:
-        score -= 50
-    if is_poll:
-        score -= 25
-    if is_weather:
-        score -= 15
-
-    region = None
-    if re.search(r"\bwroc[łl]aw\b|\bwroclaw\b", blob) or re.search(r"dolny\s+sl[ąa]sk|dolno[śs]l[ąa]sk", blob):
-        region = "Wrocław / Dolny Śląsk"
-        score += 25 if re.search(r"\bwroc[łl]aw\b|\bwroclaw\b", blob) else 20
-
-    serious_crime = bool(re.search(r"zab[oó]jstw|morderstw|napad|gwa[łl]t|porwan", blob))
-    children = bool(re.search(r"\bdzieck|\bniemowl|\bniemowle", blob))
-    if serious_crime:
-        score += 25
-    if children:
-        score += 18
-
-    police = bool(re.search(r"\bpolicj|\bprokuratur", blob))
-    if police:
-        score += 3
-
-    politics = bool(re.search(r"\brz[aą]d\b|\bsejm\b|prezydent|ustaw|podatk|\bzus\b", blob))
-    foreign = bool(re.search(r"ukrain|rosj|granica|\bnato\b|\bue\b|unii\s+europej", blob))
-    economy = bool(re.search(r"inflac|stopy\s+procent|ceny|mieszk|nieruchom|gospodark", blob))
-
-    if politics:
-        score += 12
-    if foreign:
-        score += 12
-    if economy:
+    # Score public impact, without privileging a particular city or crime beat.
+    blob = fold_pl(blob)
+    rules = (
+        ("health", r"zdrow|szpital|nfz|lekow|epidem|בריאות|חולים"),
+        ("education", r"edukac|szkol|uczel|nauczyciel|חינוך|ספר"),
+        ("transport", r"kolej|pociag|lotnisk|autostrad|transport|רכבת|תחבורה"),
+        ("security", r"bezpieczen|wojsk|obron|nato|granicy|ביטחון|צבא"),
+        ("economy", r"inflac|stop.{0,12}procent|cen[ay]|gospodar|podat|zus|כלכלה|מסים"),
+        ("politics", r"rzad|sejm|senat|prezydent|ustaw|trybunal|ממשלה|נשיא"),
+    )
+    category = next((name for name, pattern in rules if re.search(pattern, blob)), "other")
+    score = 25 if category != "other" else 15
+    national = bool(re.search(r"sejm|senat|rzad|minister|prezydent|nbp|nfz|zus|ogolnopol|ממשלה|ארצי", blob))
+    development = bool(re.search(r"uchwal|podpis|zatwierdz|wprowadz|obniz|podwyz|zmian|reform|decyz|weto|אישר|החליט|שינוי", blob))
+    if national:
         score += 10
-
-    if region and (serious_crime or children or (police and re.search(r"areszt|zatrzym|napad|no[zż]", blob))):
+    if development:
+        score += 10
+    if re.search(r"ewaku|powodz|katastrof|epidem|ofiar|הרוג|פינוי|הצפה", blob):
         score += 20
-    if serious_crime:
-        score += 10
-
-    if region:
-        category = "local"
-    elif serious_crime or children:
-        category = "crime"
-    elif politics:
-        category = "politics"
-    elif economy:
-        category = "economy"
-    elif foreign:
-        category = "foreign"
-    else:
-        category = "other"
-
-    return int(score), category, region
+    region = "Wrocław / Dolny Śląsk" if re.search(r"wroclaw|dolnoslask|dolny slask", blob) else None
+    if re.search(r"sondaz|prognoza pogody|horoskop", blob):
+        score -= 20
+    return min(100, max(0, score)), category, region
 
 
 def select_items_for_slot(items: list[dict], slot: str) -> tuple[list[dict], str | None]:
@@ -264,3 +231,4 @@ def send_email_digest(
 
 def iso_utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
