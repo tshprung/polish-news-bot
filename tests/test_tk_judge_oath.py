@@ -26,27 +26,10 @@ def test_onet_hebrew_summary_and_slug_gets_beat():
     assert article_is_pl_tk_judge_oath_beat(article) is True
 
 
-def test_hebrew_summary_merges_polish_title_in_dedup_window():
-    a = {
-        "id": "1",
-        "title": "Nawrocki zaprzysięża sędziów TK",
-        "summary": "Komunikat",
-        "link": "",
-        "sort_key": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
-    }
-    b = {
-        "id": "2",
-        "title": "Inny naglowek",
-        "summary": (
-            "נשיא פולין השביע שני שופטים לבית המשפט החוקתי מתוך שישה. "
-            "שאר המינויים במחלוקת."
-        ),
-        "link": "https://example.org/x",
-        "sort_key": a["sort_key"],
-    }
-    dup, detail = _is_near_duplicate(a, b, timedelta(hours=8))
-    assert dup is True
-    assert "pl_tk_judge_oath_row" in detail
+def test_shared_subject_alone_does_not_merge_different_facts():
+    a = {"title": "Nawrocki zaprzysięża sędziów TK", "summary": "Dwóch sędziów"}
+    b = {"title": "Nawrocki zaprzysięża sędziów TK", "summary": "Pozostali czterej sędziowie zaprzysiężeni"}
+    assert _is_near_duplicate(a, b)[0] is False
 
 
 def test_rate_limit_second_post_within_interval(monkeypatch):
@@ -61,3 +44,4 @@ def test_rate_limit_second_post_within_interval(monkeypatch):
     record_tk_judge_oath_post(conn)
     monkeypatch.setattr(db_mod.time, "time", lambda: 5_000_000 + 3 * 3600)
     assert tk_judge_oath_post_allowed(conn, interval) is False
+

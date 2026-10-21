@@ -25,3 +25,5 @@ echo "    chmod +x $INSTALL_DIR/run.sh"
 echo "    crontab -e"
 echo "    Add this line (hourly; use CRON_TZ=Europe/Warsaw if needed):"
 echo "    0 * * * * $INSTALL_DIR/run.sh"
+
+echo "    0 20 * * * $INSTALL_DIR/run.sh send-telegram-digest"

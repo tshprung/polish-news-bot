@@ -18,17 +18,8 @@ FEEDS = [
 # Only ingest RSS items from the last N hours (published time).
 MAX_ARTICLE_AGE_HOURS = int(os.environ.get("MAX_ARTICLE_AGE_HOURS", "48"))
 
-# Longer horizon so same-day beats (wires hours apart) collapse to one post.
-DEDUP_WINDOW_HOURS = 24
-DEDUP_JACCARD_MIN = 0.15
-DEDUP_DICE_MIN = 0.38
-DEDUP_DICE_RELAXED = 0.32
-DEDUP_STRONG_INTERSECTION = 5
-DEDUP_JACCARD_RELAXED = 0.11
-DEDUP_OVERLAP_MIN = 0.28
-DEDUP_OVERLAP_MIN_TOKENS = 4
-DEDUP_OVERLAP_SET_MIN = 5
-DEDUP_OVERLAP_LOOSE = 0.26
+# Remember identical copy for a week; semantic checks also preserve material updates.
+DEDUP_WINDOW_HOURS = 7 * 24
 DEDUP_CONTENT_SUMMARY_CHARS = 4000
 
 # Channel rate limits: post at most once per interval (UTC epoch), per topic key below.
@@ -44,25 +35,6 @@ RATE_LIMIT_KEY_WEATHER = "weather_pl_imgw"
 RATE_LIMIT_KEY_FUEL_TOURISM_DE_PL = "fuel_tourism_de_pl_border"
 RATE_LIMIT_KEY_TK_JUDGE_OATH = "pl_tk_judge_oath_row"
 
-_DEDUP_SHORT_TOKENS_OK = frozenset({"ke", "tk", "ue", "lr"})
-
-_TOPIC_DEDUP_TAGS = frozenset({
-    "#tram_accident",
-    "#komendant_speed",
-    "#lodz_crime_factory",
-    "#pl_weather_forecast",
-    "#nato_us_poland",
-    "#baltic_whale_stranding",
-    "#de_reiche_fuel_policy",
-    "#pl_tk_judge_oath_row",
-    "#poznan_infant_abuse_beat",
-    "#pl_by_poczobut_release",
-})
-# Shared topic tag alone is too loose; require this many overlapping non-tag tokens too.
-TOPIC_DEDUP_MIN_LEXICAL = 2
-# Synoptic / IMGW wires share vocabulary; allow lighter overlap so one beat does not flood the channel.
-TOPIC_DEDUP_MIN_LEXICAL_WEATHER = 1
-
 _PL_FOLD = str.maketrans(
     "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
     "acelnoszzacelnoszz",
@@ -72,33 +44,6 @@ _PL_FOLD = str.maketrans(
 def fold_pl(token: str) -> str:
     return unicodedata.normalize("NFC", token).translate(_PL_FOLD).lower()
 
-
-POLISH_STOPWORDS = frozenset(
-    fold_pl(w)
-    for w in """
-    a albo ani oraz jednak natomiast więc dlatego ponadto przy tym
-    i lub czy też także również nadal już jeszcze bardzo bardziej
-    nie tak tylko może pewnie
-    to ta ten tego tej tych tym tą tę tam tamten
-    że żeby żebym ze który która które których którym którymi
-    jak jaki jaka jakie jakiś jakaś jakieś jakich jakim
-    co czym czego
-    kiedy gdy gdzie dokąd skąd dlaczego czemu
-    kto kogo komu kim
-    ci te jej jego ich im go mu ją nią nimi
-    nas nasz wasz swój swoje swoją mój twój nasi nasze wasze
-    być jest są был była było były będzie mogą ma mają musi muszą
-    się sobie siebie sobą
-    swoim
-    mnie mi mną tobie cię ci tobą
-    pod nad między bez wokół przez dla przeciw ku od do ze z za na w we u o
-    po przy
-    takie samo samą samym samych sam sama sami same
-    dzisiaj dziś wczoraj jutro dnia godz min sek
-    www http https com pl
-    video zobacz czytaj więcej foto zdjęcie
-    """.split()
-)
 
 SPORTS_KEYWORDS = re.compile(
     r"\b(sport|pi[łl]k|mecz|liga|transfer|fifa|ekstraklasa|kibic|trener|bramk|"
@@ -802,45 +747,9 @@ def crowdfunding_medical_skip_reason() -> str:
     return "rss teaser: private medical fundraiser / donation appeal"
 
 
-_PL_NATIONAL_HOOK = re.compile(
-    r"(?is)\b(?:"
-    r"polsk\w*|polsce|polacy|polak\w*|"
-    r"sejm|senat|rz[aą]d|premier|prezydent|ustaw\w*|trybuna[łl]|tk\b|"
-    r"mswia|msz\b|mon\b|nbp\b|zus\b|krs\b|pk\b|pis\b|ko\b|po\b|lewica|konfederacj"
-    r")\b"
-)
-_FOREIGN_WORLD_WIRE = re.compile(
-    r"(?is)\b(?:"
-    r"ukrain\w*|kij[oó]w|kyiv|zelensk\w*|"
-    r"rosj\w*|putin\w*|moskw\w*|kreml\w*|"
-    r"naddniestrz\w*|naddniestrze|tr?ansnistr\w*|"
-    r"bia[łl]oru[śs]\w*|iran\w*|izrael\w*|gaza\b|hamas\b|"
-    r"trump\w*|usa\b|waszyngton\w*|chiny|pekin\w*|"
-    r"nato\b|ue\b|bruksela|komisj\w*\s+europej"
-    r")\b"
-)
-_PL_LOCAL_ONLY_MARKERS = re.compile(
-    r"(?is)\b(?:"
-    r"wroc[łl]aw|krak[oó]w|gd[aą]sk|gdy[nń]ia|pozn[ań]|\blodz\b|ł[oó]d[zź]|"
-    r"bialystok|rzesz[oó]w|katowic\w*|szczecin|lublin|bydgoszcz|toru[nń]|"
-    r"olsztyn|opole|kielc\w*|zielona\s+g[oó]ra|gorz[oó]w|"
-    r"dolno[śs]l[aą]sk\w*|mazowieck\w*|ma[łl]opolsk\w*|podlask\w*|"
-    r"podkarpack\w*|[śs]l[aą]sk\w*|wielkopolsk\w*|pomorsk\w*"
-    r")\b"
-)
-
-
 def should_skip_non_national_poland_teaser(title: str, summary: str, link: str = "") -> bool:
-    blob = f"{(title or '').strip()}\n{(summary or '').strip()}\n{(link or '').strip()}".strip()
-    if len(blob) < 32:
-        return False
-    f = fold_pl(blob[:12000])
-    if _PL_NATIONAL_HOOK.search(f):
-        return False
-    if _FOREIGN_WORLD_WIRE.search(f):
-        return True
-    if _PL_LOCAL_ONLY_MARKERS.search(f):
-        return True
+    # A headline cannot reliably establish national impact or exclude a Polish stake.
+    # Let the content classifier decide after fetching the full article.
     return False
 
 
@@ -952,10 +861,10 @@ SYSTEM_PROMPT = (
     "like: ורוצלב (Wrocław) or בידגושץ' (Bydgoszcz). Never output hybrid Latin-Hebrew word mashups or trailing Polish grammar endings.\n"
     "Polish age headlines N-latka / N-latek: write בת N or בן N, or נערה בת N / נער בן N — never hyphenated fakes like 17-למת.\n"
     "Polish titles: wiceminister / wice- = סגן שר. Polish MSWiA = משרד הפנים והמינהל.\n\n"
-    "**Channel scope — Poland national news (domestic-first):** Cover **Poland's national-level domestic affairs**. "
-    "**GO** when it is clearly about Poland as a state: government/Sejm/Senate, presidency, courts, nationwide economy/price policy, "
+    "**Channel scope — Poland news (domestic-first):** Cover national news and significant regional developments affecting residents, including health, education, transport, housing and public safety. "
+    "**GO** when it has a concrete impact on Poland or its residents: government/Sejm/Senate, presidency, courts, nationwide economy/price policy, "
     "nationwide security for Poland, and other country-wide issues. "
-    "**SKIP** foreign wars/diplomacy and world wires (Russia/Ukraine/US/EU etc.) unless Poland's national institutions or officials are "
+    "**SKIP** foreign wars/diplomacy and world wires (Russia/Ukraine/US/EU etc.) unless a concrete Polish stake or impact on residents is "
     "explicitly central in the excerpt.\n\n"
     "Reply with exactly one line, no preamble:\n"
     "SKIP - sports.\n"
@@ -965,14 +874,18 @@ SYSTEM_PROMPT = (
     f"Hebrew - 1-2 sentences, ≤{_SUMMARY_CAP} words\n\n"
     "If the Polish text includes facts, names, or decisions, output a natural Hebrew summary of those facts. "
     "Never answer with Hebrew text describing a lack of context — reply SKIP instead. "
+    "Vocabulary: zbiory / zbiór means איסוף or harvest, never זבירות. "
+    "Gdańsk is גדנסק, never בגדה or ב-Gdańsk; Polska is פולין, never ב-Polska. "
+    "SKIP another country's purely domestic reporting without a concrete Polish stake, "
+    "including generic Brussels / European Commission bloc-wide news without a specific Poland impact. "
     "No hallucinations. Single coherent story from the provided text only."
 )
 
 CLASSIFY_PROMPT = (
     "**Poland — national news channel (domestic-first).** Feeds are Polish outlets but include world wires and local crime.\n"
-    "**GO** only if the excerpt clearly concerns **Poland at a national level**: Polish government/Sejm/Senate/presidency, "
-    "national courts/constitutional issues, nationwide economy/price policy, nationwide security for Poland, or other country-wide issues.\n"
-    "**GO** for foreign/security topics only when Poland's national institutions or officials are explicitly central (MFA/MON, "
+    "**GO** for important developments affecting people in Poland, including significant regional news: Polish government/Sejm/Senate/presidency, "
+    "courts/constitutional issues, economy/price policy, security, health, education, housing, transport, major regional emergencies and significant public services.\n"
+    "**GO** for foreign/security topics when there is a concrete Poland impact (including residents, prices, safety, MFA/MON, "
     "Sejm vote, government decision, Polish agencies), not just that it happened in a Polish city.\n"
     "**SKIP** if: sports; or the story **lacks a direct Poland tie** (another country's internal affairs only, generic EU/Brussels desk, "
     "generic foreign-power politics) — **even when a Polish site syndicates it**; or **Hungary-only** rhetoric on Russia sanctions, "
@@ -989,6 +902,7 @@ CLASSIFY_PROMPT = (
     "or **opinion polls / surveys** (sondaż, CBOS-style institutes, Opinia24, OGB / “Ogólnopolska Grupa Badawcza”, “what % of Poles think”, "
     "Gazeta-style reader URLs *zapytalismy-o-…*) "
     "including analysis or simulations based on them, rather than a dated decision or event.\n"
+    "Do not reject significant regional reporting merely because no national official is named. "
     "One word: SKIP or GO."
 )
 
@@ -1024,3 +938,4 @@ SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "")
 MIDDAY_MIN_ITEMS = 3
 MIDDAY_HIGH_IMPORTANCE_SCORE = 35
 MIDDAY_MIN_HIGH_IMPORTANCE_ITEMS = 1
+

@@ -316,7 +316,7 @@ def classify(client: OpenAI, text: str):
         max_out=5,
         messages=[
             {"role": "system", "content": CLASSIFY_PROMPT},
-            {"role": "user", "content": f"Article: {text[:500]}"},
+            {"role": "user", "content": f"Article: {text[:1500]}"},
         ],
     )
     result = response.choices[0].message.content.strip().upper()
@@ -344,9 +344,6 @@ def summarize_in_hebrew(
     rss_text = article["title"]
     if article["summary"]:
         rss_text += ". " + article["summary"]
-
-    if should_skip_ultra_short_rss_item(article.get("title"), article.get("summary")):
-        return None, ultra_short_rss_skip_reason()
 
     if should_skip_public_opinion_poll_teaser(
         article.get("title"),
@@ -399,6 +396,8 @@ def summarize_in_hebrew(
         return None, f"paywalled domain ({domain})"
 
     body = fetch_article_body(session, article["link"], http_timeout)
+    if not body and should_skip_ultra_short_rss_item(article.get("title"), article.get("summary")):
+        return None, ultra_short_rss_skip_reason()
     if body:
         _TEL.body_fetched_chars += len(body)
     text = (article["title"] + ". " + body) if body else rss_text
@@ -558,3 +557,4 @@ def summarize_in_hebrew(
 
 def openai_client() -> OpenAI:
     return OpenAI(timeout=OPENAI_TIMEOUT_SEC, max_retries=OPENAI_MAX_RETRIES)
+
