@@ -12,6 +12,12 @@ from story_memory import repeated_story_id
 from telegram_digest import _diversify_items, send_daily_telegram_digest
 
 
+@pytest.fixture(autouse=True)
+def isolate_copy_editing(monkeypatch):
+    # Delivery tests exercise persistence and retries; editor validation has its own suite.
+    monkeypatch.setattr('telegram_digest.edit_hebrew_items', lambda client, items: items)
+
+
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
     monkeypatch.setattr(database, 'DB_PATH', tmp_path / 'news.db')
@@ -79,10 +85,9 @@ def test_digest_marks_only_delivered_items_and_records_history(conn, monkeypatch
     assert conn.execute('SELECT count(*) FROM dedup_recent').fetchone()[0] == 4
     assert conn.execute("SELECT count(*) FROM email_digest_items WHERE telegram_digest_status = 'sent'").fetchone()[0] == 4
     client.chat.completions.create.assert_not_called()
-    # Omitted items remain available for the next digest, then stop repeating.
-    assert send_daily_telegram_digest(conn, client, None, (1, 1))
-    assert get_unsent_telegram_digest_items(conn) == []
+    # Omitted items remain queued, but a duplicate cron invocation cannot send a second brief.
     assert not send_daily_telegram_digest(conn, client, None, (1, 1))
+    assert len(get_unsent_telegram_digest_items(conn)) == 2
 
 
 def test_failed_send_leaves_stories_pending(conn, monkeypatch):
@@ -106,6 +111,19 @@ def test_chunked_delivery_commits_each_successful_chunk(conn, monkeypatch):
     message = sender.call_args_list[0].args[1]
     assert len(message) <= 3500
     assert '&lt;בדיקה&gt;' in message and message.count('<a ') == message.count('</a>')
+
+
+def test_partial_retry_respects_daily_story_budget(conn, monkeypatch):
+    monkeypatch.setenv('NEWS_DIGEST_MAX_ITEMS', '4')
+    for i in range(6):
+        add(conn, str(i), summary=('חדשות <בדיקה> & עובדות ' * 35))
+    monkeypatch.setattr('telegram_digest.send_to_telegram', MagicMock(side_effect=[None, RuntimeError('second chunk failed')]))
+    with pytest.raises(RuntimeError):
+        send_daily_telegram_digest(conn, MagicMock(), None, (1, 1))
+    monkeypatch.setattr('telegram_digest.send_to_telegram', MagicMock())
+    assert send_daily_telegram_digest(conn, MagicMock(), None, (1, 1))
+    assert len(get_unsent_telegram_digest_items(conn)) == 2
+    assert not send_daily_telegram_digest(conn, MagicMock(), None, (1, 1))
 
 
 def test_expired_queue_is_not_marked_delivered(conn):

@@ -8,11 +8,27 @@ incidents and opinion polls remain excluded.
 
 ## Delivery and repeat prevention
 
-- Immediate alerts use `NEWS_TELEGRAM_MIN_SCORE` (default 40). A national policy
-  decision normally scores 45; routine local crime receives no city bonus.
+- Delivery is daily-only by default, while ingestion continues on its existing
+  schedule. Set `NEWS_TELEGRAM_ALERTS_ENABLED=1` only to opt into separate immediate
+  alerts; these use `NEWS_TELEGRAM_MIN_SCORE` (default 40). Routine local crime
+  receives no city bonus. Optional immediate alerts are separate from the digest's
+  daily story budget.
 - The daily brief uses up to `NEWS_DIGEST_MAX_ITEMS` existing Hebrew summaries
-  (default 8), each with its own source. Category breadth is a preference, not a
-  hard limit on different security or political events.
+  (default 8, maximum 10), each with its own source. Concrete decisions, reports,
+  emergency warnings and other observable developments rank above commentary
+  and political reactions. Pending stories are re-ranked at delivery time.
+  Category breadth is a small preference, not a hard limit on different events.
+- A Hebrew copy editor checks only the stories about to be sent (one batch call
+  for the brief, or one call per immediate alert). It checks sentence subjects,
+  grammar, names and institutional terminology against the supplied title and
+  draft. Unknown names can retain their original Latin spelling. Numeric changes,
+  missing stories and invalid edits are rejected, leaving stories available for
+  retry. `NEWS_HEBREW_EDIT_MODEL` defaults to the summary model. This adds a model
+  call and is a quality safeguard, not independent factual verification.
+- Only one completed daily brief can be sent per Warsaw calendar day, even if
+  cron invokes it twice. Partial-send retries count stories already delivered
+  against that day's configured limit. A long brief may still span several
+  consecutive Telegram messages because of the platform's length limit.
 - Only successfully delivered entries are marked sent. Omitted entries remain
   pending for up to 48 hours after ingestion; older entries expire separately
   and are never labelled delivered. Successful message chunks are committed

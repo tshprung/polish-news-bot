@@ -41,6 +41,7 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS channel_rate_limits (rate_key TEXT PRIMARY KEY, last_sent_epoch INTEGER NOT NULL)"
     )
     _migrate_weather_rate_to_channel_limits(conn)
+    conn.execute("CREATE TABLE IF NOT EXISTS telegram_digest_days (local_date TEXT PRIMARY KEY, completed_at TEXT NOT NULL)")
     _init_email_digest_items(conn)
     conn.execute("DELETE FROM seen_articles WHERE sent_at < datetime('now', '-14 days')")
     cutoff = int(time.time()) - _DEDUP_RECENT_TTL_SEC
@@ -255,3 +256,23 @@ def get_recent_story_items(conn, days: int = 7) -> list[dict]:
         "ORDER BY id DESC LIMIT 2000", (cutoff,)
     ).fetchall()
     return [{"id": row[0], "title": row[1], "summary_he": row[2]} for row in rows]
+
+
+def telegram_digest_day_state(conn, now: datetime) -> tuple[bool, int]:
+    """Completion and delivered count for the Warsaw calendar day, excluding alerts."""
+    local = now.astimezone(ZoneInfo("Europe/Warsaw"))
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    completed = conn.execute("SELECT 1 FROM telegram_digest_days WHERE local_date = ?", (local.date().isoformat(),)).fetchone()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM email_digest_items WHERE telegram_digest_slot = 'evening' "
+        "AND julianday(telegram_digest_sent_at) >= julianday(?) "
+        "AND julianday(telegram_digest_sent_at) < julianday(?)", (start.isoformat(), end.isoformat())
+    ).fetchone()[0]
+    return bool(completed), count
+
+
+def complete_telegram_digest_day(conn, now: datetime) -> None:
+    local = now.astimezone(ZoneInfo("Europe/Warsaw"))
+    conn.execute("INSERT OR REPLACE INTO telegram_digest_days (local_date, completed_at) VALUES (?, ?)",
+                 (local.date().isoformat(), now.isoformat()))

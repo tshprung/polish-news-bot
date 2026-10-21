@@ -59,7 +59,7 @@ def _ensure_large_font_html(html_body: str) -> str:
 
 
 def score_and_classify_item(title: str, source: str, url: str, summary_he: str) -> tuple[int, str, str | None]:
-    blob = f"{title}\n{source}\n{url}\n{summary_he}".lower()
+    blob = f"{title}\n{summary_he}".lower()
     # Score public impact, without privileging a particular city or crime beat.
     blob = fold_pl(blob)
     rules = (
@@ -80,6 +80,24 @@ def score_and_classify_item(title: str, source: str, url: str, summary_he: str) 
         score += 10
     if re.search(r"ewaku|powodz|katastrof|epidem|ofiar|הרוג|פינוי|הצפה", blob):
         score += 20
+    # Prefer observable developments over statements about an existing dispute.
+    headline = fold_pl(title)
+    concrete_event = bool(re.search(
+        r"uchwal|przyjet|przyjal|zatwierdz|podpisal|zawetow|wchodzi w zycie|"
+        r"wyrok|uniewinn|zatrzym|areszt|ewaku|alert rcb|ostrzezeni|"
+        r"spadl samolot|katastrof|wypadek|awaria|raport.{0,70}przyjet|"
+        r"התרעת|אישר|זיכה|נעצר|פונה", headline))
+    proposal = bool(re.search(r"projekt ustaw|proponuj|przygotow.{0,30}ustaw|הצעת חוק", headline))
+    commentary = bool(re.search(
+        r"twierdzi|powiedzial|uwaza|skrytykow|oskarz|atakuj|grozi|"
+        r"nie ma z kim rozmawiac|niepokoi|reakcja|komentarz|"
+        r"mowi o|ekonomistka o|tylko plaster|טען|תקף|ביקר את", headline))
+    if concrete_event:
+        score += 15
+    elif proposal:
+        score += 8
+    elif commentary:
+        score -= 15
     region = "Wrocław / Dolny Śląsk" if re.search(r"wroclaw|dolnoslask|dolny slask", blob) else None
     if re.search(r"sondaz|prognoza pogody|horoskop", blob):
         score -= 20

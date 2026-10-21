@@ -42,6 +42,7 @@ from http_util import make_http_session, request_timeout
 from email_digest import iso_utc_now, score_and_classify_item, send_email_digest
 from summarize import openai_client, summarize_in_hebrew
 from story_memory import repeated_story_id
+from hebrew_editor import edit_hebrew_items
 from telegram_bot import notify_admin, send_to_telegram, telegram_html_anchor
 from telegram_digest import send_daily_telegram_digest
 
@@ -57,6 +58,11 @@ def _telegram_min_score() -> int:
         return int(os.environ.get("NEWS_TELEGRAM_MIN_SCORE", "40"))
     except ValueError:
         return 40
+
+
+def _immediate_alerts_enabled() -> bool:
+    # Daily-only delivery is the default. Collection continues every 30 minutes.
+    return os.environ.get("NEWS_TELEGRAM_ALERTS_ENABLED", "0").strip() == "1"
 
 
 def _mark_seen(conn, article):
@@ -94,7 +100,7 @@ def run_ingestion():
                 _mark_seen(conn, article)
                 continue
 
-            immediate_allowed = True
+            immediate_allowed = _immediate_alerts_enabled()
             if article_is_pl_weather_forecast_beat(article) and not weather_post_allowed(conn, WEATHER_POST_MIN_INTERVAL_SEC):
                 immediate_allowed = False
                 log.info("Immediate alert suppressed (weather rate %ds): %s", WEATHER_POST_MIN_INTERVAL_SEC, article["title"][:70])
@@ -129,6 +135,9 @@ def run_ingestion():
             except Exception as e:
                 log.warning("Importance scoring failed: %s", e)
                 score, category, region = 0, "other", None
+
+            if immediate_allowed and score >= min_score:
+                hebrew = edit_hebrew_items(client, [{"id": article["id"], "title": article["title"], "summary_he": hebrew}])[0]["summary_he"]
 
             store_email_digest_item(
                 conn, article, hebrew, importance_score=score, category=category, region=region

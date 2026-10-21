@@ -878,6 +878,9 @@ SYSTEM_PROMPT = (
     "Gdańsk is גדנסק, never בגדה or ב-Gdańsk; Polska is פולין, never ב-Polska. "
     "SKIP another country's purely domestic reporting without a concrete Polish stake, "
     "including generic Brussels / European Commission bloc-wide news without a specific Poland impact. "
+    "Before replying, check that every sentence has a subject, all institution names are meaningful, "
+    "and the Hebrew is grammatical. If transliteration is uncertain, retain the source's Latin spelling. "
+    "Use משרד החוץ, not המשרד החוץ. Preserve legal stages: a proposal is not an adopted law. "
     "No hallucinations. Single coherent story from the provided text only."
 )
 
