@@ -226,22 +226,13 @@ def _postprocess_hebrew_summary(result: str, source_blob: str) -> tuple[str | No
     if not _HEBREW_CHAR_RE.search(result):
         return result, _HEBREW_RETRY_SENTINEL
 
-    m_heb = _HEBREW_CHAR_RE.search(result)
-    result = result[m_heb.start() :].strip()
+    # A Latin name can be the grammatical subject (e.g. "Sejm דן...").
+    # Never slice it off or delete parts of mixed-script words to force validity.
     if len(result) < 15:
-        return None, "Hebrew too short after removing leading non-Hebrew (likely echoed input)"
-
-    _hebrew_glue = r"\u0590-\u05FF\uFB1D-\uFB4F"
-    _latin_glue = r"A-Za-z\u00C0-\u024F"
-    result = re.sub(rf"[{_hebrew_glue}]+(?=[{_latin_glue}])", "", result)
-    result = re.sub(rf"(?<=[{_latin_glue}])[{_hebrew_glue}]+", "", result)
-    result = result.strip()
-
-    hebrew_re = _HEBREW_CHAR_RE
-    latin_re = re.compile(r"[A-Za-z]")
+        return None, "Hebrew too short"
     for token in re.split(r"[\s\-]+", result):
-        if hebrew_re.search(token) and latin_re.search(token):
-            return None, f"mixed-script word detected: '{token}'"
+        if _HEBREW_CHAR_RE.search(token) and _LATIN_LETTER_RE.search(token):
+            return result, _HEBREW_RETRY_SENTINEL
 
     prose_leak = non_hebrew_prose_leak_reason(result)
     if prose_leak:
