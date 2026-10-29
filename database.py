@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import feedparser
+from retry_queue import retry_articles_and_states, init_retry_queue
 
 from config import (
     DB_PATH,
@@ -40,6 +41,7 @@ def init_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS channel_rate_limits (rate_key TEXT PRIMARY KEY, last_sent_epoch INTEGER NOT NULL)"
     )
+    init_retry_queue(conn)
     _migrate_weather_rate_to_channel_limits(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS telegram_digest_days (local_date TEXT PRIMARY KEY, completed_at TEXT NOT NULL)")
     _init_email_digest_items(conn)
@@ -80,6 +82,8 @@ def _init_email_digest_items(conn: sqlite3.Connection) -> None:
                     added_telegram_columns = True
             except sqlite3.OperationalError:
                 pass
+    if "source_text" not in cols:
+        conn.execute("ALTER TABLE email_digest_items ADD COLUMN source_text TEXT NOT NULL DEFAULT ''")
     if "telegram_digest_status" not in cols:
         conn.execute("ALTER TABLE email_digest_items ADD COLUMN telegram_digest_status TEXT NOT NULL DEFAULT 'pending'")
     conn.execute("UPDATE email_digest_items SET telegram_digest_status = 'sent' WHERE telegram_digest_sent_at IS NOT NULL")
@@ -158,10 +162,10 @@ def store_email_digest_item(conn, article: dict, summary_he: str, importance_sco
         pass
     cur = conn.execute(
         "INSERT OR IGNORE INTO email_digest_items "
-        "(article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region, source_text) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (article.get("id"), article.get("link"), article.get("title"), article.get("source"), published_at,
-         published_epoch, now_iso, summary_he, int(importance_score or 0), category, region),
+         published_epoch, now_iso, summary_he, int(importance_score or 0), category, region, article.get("source_text", "")[:8000]),
     )
     return bool(cur.rowcount)
 
@@ -170,14 +174,14 @@ def _rows_to_digest_items(rows) -> list[dict]:
     return [
         {"id": r[0], "article_id": r[1], "url": r[2], "title": r[3], "source": r[4],
          "published_at": r[5], "published_epoch": r[6], "created_at": r[7], "summary_he": r[8],
-         "importance_score": r[9], "category": r[10], "region": r[11]}
+         "importance_score": r[9], "category": r[10], "region": r[11], "source_text": r[12] if len(r) > 12 else ""}
         for r in rows
     ]
 
 
 def get_unsent_email_digest_items(conn) -> list[dict]:
     cur = conn.execute(
-        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region "
+        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region, source_text "
         "FROM email_digest_items WHERE email_digest_sent_at IS NULL ORDER BY importance_score DESC, id ASC"
     )
     return _rows_to_digest_items(cur.fetchall())
@@ -185,7 +189,7 @@ def get_unsent_email_digest_items(conn) -> list[dict]:
 
 def get_unsent_telegram_digest_items(conn) -> list[dict]:
     cur = conn.execute(
-        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region "
+        "SELECT id, article_id, url, title, source, published_at, published_epoch, created_at, summary_he, importance_score, category, region, source_text "
         "FROM email_digest_items WHERE telegram_digest_sent_at IS NULL AND telegram_digest_status = 'pending' ORDER BY importance_score DESC, published_epoch DESC, id DESC"
     )
     return _rows_to_digest_items(cur.fetchall())
@@ -212,7 +216,9 @@ def mark_telegram_digest_items_sent(conn, item_ids: list[int], slot: str, sent_a
 
 
 def get_new_articles(conn):
-    new_articles = []
+    due, retry_states = retry_articles_and_states(conn)
+    new_articles = list(due)
+    queued_ids = {item["id"] for item in due}
     now_utc = datetime.now(timezone.utc)
     min_dt = now_utc - timedelta(hours=int(MAX_ARTICLE_AGE_HOURS))
     for feed_url in FEEDS:
@@ -220,7 +226,10 @@ def get_new_articles(conn):
             feed = feedparser.parse(feed_url)
             for entry in feed.entries:
                 article_id = entry.get("id") or entry.get("link")
-                if not article_id:
+                if not article_id or article_id in queued_ids:
+                    continue
+                if article_id in retry_states and retry_states[article_id] != "resolved":
+                    # Pending retries respect their backoff even if still in RSS.
                     continue
                 exists = conn.execute("SELECT 1 FROM seen_articles WHERE id = ?", (article_id,)).fetchone()
                 if exists:
@@ -231,6 +240,7 @@ def get_new_articles(conn):
                     conn.execute("INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article_id,))
                     continue
                 dt_local = dt.astimezone(ZoneInfo("Europe/Warsaw"))
+                queued_ids.add(article_id)
                 new_articles.append({
                     "id": article_id,
                     "link": entry.get("link") or article_id,

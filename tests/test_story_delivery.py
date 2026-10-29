@@ -16,6 +16,7 @@ from telegram_digest import _diversify_items, send_daily_telegram_digest
 def isolate_copy_editing(monkeypatch):
     # Delivery tests exercise persistence and retries; editor validation has its own suite.
     monkeypatch.setattr('telegram_digest.edit_hebrew_items', lambda client, items: items)
+    monkeypatch.setattr('telegram_digest.select_editorial_items', lambda client, items, limit: _diversify_items(items, limit))
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def conn(tmp_path, monkeypatch):
 
 def add(conn, key, summary='סיכום בעברית עם עובדות על התפתחות חדשה בפולין', category='politics', score=25):
     article = {'id': key, 'link': 'https://example.test/' + key, 'title': key,
-               'source': 'Source', 'date': '', 'sort_key': datetime.now(timezone.utc)}
+               'source': 'Source', 'date': '', 'sort_key': datetime.now(timezone.utc), 'source_text': 'Original Polish reporting with concrete supplied facts.'}
     store_email_digest_item(conn, article, summary, score, category)
     conn.commit()
     return article
@@ -101,7 +102,7 @@ def test_failed_send_leaves_stories_pending(conn, monkeypatch):
 
 def test_chunked_delivery_commits_each_successful_chunk(conn, monkeypatch):
     for i in range(4):
-        add(conn, str(i), summary=('חדשות <בדיקה> & עובדות ' * 35))
+        add(conn, str(i), summary=('חדשות <בדיקה> & עובדות ' * 55))
     sender = MagicMock(side_effect=[None, RuntimeError('second chunk failed')])
     monkeypatch.setattr('telegram_digest.send_to_telegram', sender)
     with pytest.raises(RuntimeError):
@@ -109,14 +110,15 @@ def test_chunked_delivery_commits_each_successful_chunk(conn, monkeypatch):
     pending = get_unsent_telegram_digest_items(conn)
     assert 0 < len(pending) < 4
     message = sender.call_args_list[0].args[1]
-    assert len(message) <= 3500
+    from telegram_format import rendered_length
+    assert rendered_length(message) <= 4000
     assert '&lt;בדיקה&gt;' in message and message.count('<a ') == message.count('</a>')
 
 
 def test_partial_retry_respects_daily_story_budget(conn, monkeypatch):
     monkeypatch.setenv('NEWS_DIGEST_MAX_ITEMS', '4')
     for i in range(6):
-        add(conn, str(i), summary=('חדשות <בדיקה> & עובדות ' * 35))
+        add(conn, str(i), summary=('חדשות <בדיקה> & עובדות ' * 55))
     monkeypatch.setattr('telegram_digest.send_to_telegram', MagicMock(side_effect=[None, RuntimeError('second chunk failed')]))
     with pytest.raises(RuntimeError):
         send_daily_telegram_digest(conn, MagicMock(), None, (1, 1))

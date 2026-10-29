@@ -78,8 +78,8 @@ def score_and_classify_item(title: str, source: str, url: str, summary_he: str) 
         score += 10
     if development:
         score += 10
-    if re.search(r"ewaku|powodz|katastrof|epidem|ofiar|הרוג|פינוי|הצפה", blob):
-        score += 20
+    if re.search(r"powodz|katastrof|epidem|הצפה", blob):
+        score += 10
     # Prefer observable developments over statements about an existing dispute.
     headline = fold_pl(title)
     concrete_event = bool(re.search(
@@ -98,6 +98,13 @@ def score_and_classify_item(title: str, source: str, url: str, summary_he: str) 
         score += 8
     elif commentary:
         score -= 15
+    if re.search(r"\bnik\b|najwyzsz.{0,12}izb.{0,12}kontrol|raport.{0,35}kontrol|wskazal.{0,30}nastepc|now.{0,15}minister", headline):
+        score += 30
+    if re.search(r"obywatelstw|pobyt|citizenship|אזרחות|תושבות", blob):
+        score += 25
+    routine_incident = re.search(r"wypadek|wybuch gazu|pozar|pogryzion|ukrasc auto|ukrasl auto|wlama|sortowni smieci|akcja ratunkowa", headline)
+    if routine_incident and not re.search(r"ogolnopol|wielu wojewodztw|katastrof|powodz", headline):
+        score = min(score, 12)
     region = "Wrocław / Dolny Śląsk" if re.search(r"wroclaw|dolnoslask|dolny slask", blob) else None
     if re.search(r"sondaz|prognoza pogody|horoskop", blob):
         score -= 20

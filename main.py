@@ -44,7 +44,8 @@ from summarize import openai_client, summarize_in_hebrew
 from story_memory import repeated_story_id
 from hebrew_editor import edit_hebrew_items
 from telegram_bot import notify_admin, send_to_telegram, telegram_html_anchor
-from telegram_digest import send_daily_telegram_digest
+from telegram_digest import send_daily_telegram_digest, prepare_daily_telegram_digest
+from retry_queue import is_translation_failure, schedule_article_retry, resolve_article_retry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +68,7 @@ def _immediate_alerts_enabled() -> bool:
 
 def _mark_seen(conn, article):
     conn.execute("INSERT OR IGNORE INTO seen_articles (id) VALUES (?)", (article["id"],))
+    resolve_article_retry(conn, article["id"])
     conn.commit()
 
 
@@ -82,7 +84,12 @@ def run_ingestion():
 
     new_articles = get_new_articles(conn)
     new_articles.sort(key=lambda a: a["sort_key"], reverse=True)
-    new_articles = deduplicate(conn, new_articles)
+    candidates = new_articles
+    new_articles = deduplicate(conn, candidates)
+    kept_ids = {article["id"] for article in new_articles}
+    for article in candidates:
+        if article["id"] not in kept_ids:
+            _mark_seen(conn, article)
     log.info("Found %d new articles after deduplication", len(new_articles))
 
     for article in new_articles:
@@ -113,6 +120,12 @@ def run_ingestion():
 
             hebrew, skip_reason = summarize_in_hebrew(client, session, to, article)
             if hebrew is None:
+                if is_translation_failure(skip_reason):
+                    pending = schedule_article_retry(conn, article, skip_reason)
+                    log.warning("Translation %s: %s (%s)", "retry queued" if pending else "retries exhausted", article["id"], skip_reason)
+                    if not pending:
+                        notify_admin(session, article, "translation retries exhausted: " + skip_reason, ADMIN_TELEGRAM_ID, to)
+                    continue
                 if skip_reason:
                     log.info("Skipped (%s): %s", skip_reason, article["title"][:70])
                     if not skip_admin_notify_for_article(article, skip_reason):
@@ -137,7 +150,7 @@ def run_ingestion():
                 score, category, region = 0, "other", None
 
             if immediate_allowed and score >= min_score:
-                hebrew = edit_hebrew_items(client, [{"id": article["id"], "title": article["title"], "summary_he": hebrew}])[0]["summary_he"]
+                hebrew = edit_hebrew_items(client, [{"id": article["id"], "title": article["title"], "summary_he": hebrew, "source_text": article.get("source_text", "")}])[0]["summary_he"]
 
             store_email_digest_item(
                 conn, article, hebrew, importance_score=score, category=category, region=region
@@ -177,6 +190,9 @@ def run_ingestion():
             _mark_seen(conn, article)
         except Exception as e:
             log.exception("Error on article %s", article["id"])
+            pending = schedule_article_retry(conn, article, "runtime: " + type(e).__name__)
+            if pending:
+                continue
             try:
                 if not skip_admin_notify_for_article(article):
                     notify_admin(session, article, f"runtime error: {e}", ADMIN_TELEGRAM_ID, to)
@@ -213,7 +229,22 @@ def run_send_telegram_digest() -> int:
     return 0
 
 
+def run_preview_telegram_digest() -> int:
+    """Preview models and formatting without sending Telegram or consuming stories."""
+    import json
+    conn = init_db()
+    try:
+        chunks = prepare_daily_telegram_digest(conn, openai_client(), make_http_session(), request_timeout())
+        print(json.dumps({"messages": [message for message, _ in chunks],
+                          "story_ids": [item["id"] for _, batch in chunks for item in batch]}, ensure_ascii=False))
+    finally:
+        conn.close()
+    return 0
+
+
 def main():
+    if "--preview-telegram-digest" in sys.argv:
+        return run_preview_telegram_digest()
     if "--send-email-digest" in sys.argv:
         try:
             idx = sys.argv.index("--send-email-digest")

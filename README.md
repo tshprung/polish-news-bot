@@ -17,14 +17,22 @@ incidents and opinion polls remain excluded.
   (default 8, maximum 10), each with its own source. Concrete decisions, reports,
   emergency warnings and other observable developments rank above commentary
   and political reactions. Pending stories are re-ranked at delivery time.
-  Category breadth is a small preference, not a hard limit on different events.
+  A separate editorial selection pass may choose fewer than eight rather than
+  fill slots with routine local incidents or recycled reactions. It requires a
+  substantive Polish stake for foreign reporting and prioritizes national policy,
+  appointments and oversight. `NEWS_EDITORIAL_MODEL` defaults to the classifier
+  model; it adds one batched call per daily brief (up to 60 shortlisted candidates),
+  with one retry if the returned selection is invalid.
 - A Hebrew copy editor checks only the stories about to be sent (one batch call
   for the brief, or one call per immediate alert). It checks sentence subjects,
-  grammar, names and institutional terminology against the supplied title and
-  draft. Unknown names can retain their original Latin spelling. Numeric changes,
-  missing stories and invalid edits are rejected, leaving stories available for
-  retry. `NEWS_HEBREW_EDIT_MODEL` defaults to the summary model. This adds a model
-  call and is a quality safeguard, not independent factual verification.
+  grammar, names, units and institutional terminology against retained original
+  Polish source text. Older queued items fetch their source before editing.
+  Verified edits must include quotations that actually occur in the source, and
+  output numbers must be supported by it. Failed validation gets one targeted
+  repair attempt; stories that still fail stay pending.
+  Unknown names can retain their original Latin spelling.
+  `NEWS_HEBREW_EDIT_MODEL` defaults to the summary model. This is a model-based
+  quality safeguard, not a guarantee of factual accuracy.
 - Only one completed daily brief can be sent per Warsaw calendar day, even if
   cron invokes it twice. Partial-send retries count stories already delivered
   against that day's configured limit. A long brief may still span several
@@ -33,6 +41,13 @@ incidents and opinion polls remain excluded.
   pending for up to 48 hours after ingestion; older entries expire separately
   and are never labelled delivered. Successful message chunks are committed
   before sending the next chunk.
+- Normal eight-story briefs use short linked outlet names and count rendered text
+  (UTF-16 units), excluding hidden URLs and HTML tags. They stay in one message
+  whenever they fit; splitting occurs only above a conservative 4,000-unit limit.
+- Translation/formatting/geography failures are queued separately from deliberate
+  editorial skips. They get up to three total attempts, with backoff, while still
+  within 48 hours of publication. Exhaustion is reported to the administrator.
+  Valid Hebrew prefixes such as ה־NIK no longer trigger a non-Hebrew rejection.
 - Shared story memory covers queued stories, alerts and daily digests from the
   preceding seven days. The newest 2,000 records are searched locally; up to 40
   candidates ranked by vocabulary overlap are compared with the incoming summary.
@@ -78,3 +93,15 @@ Tests use temporary databases and mocked model/Telegram calls. They do not send
 messages or measure live-model duplicate accuracy. New regression cases cover
 queued/sent history, material-update handling, delivery failures, chunking,
 expiry, category breadth and national-policy alert scores.
+
+To inspect a live preview without sending Telegram messages or marking stories
+delivered, run with the bot's environment loaded:
+
+```sh
+python main.py --preview-telegram-digest
+```
+
+The preview uses model calls and fetches sources; database initialization may run
+normal migrations/expiry. Use a SQLite backup copy and a temporary `DB_PATH` for
+strictly isolated testing. It does not override the once-per-day guard for actual
+delivery.

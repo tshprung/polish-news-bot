@@ -10,6 +10,9 @@ from openai import OpenAI
 from database import (get_unsent_telegram_digest_items, mark_telegram_digest_items_sent,
                       telegram_digest_day_state, complete_telegram_digest_day)
 from hebrew_editor import edit_hebrew_items
+from editorial import select_editorial_items
+from article_fetch import fetch_article_body
+from telegram_format import format_digest_chunks
 from email_digest import score_and_classify_item
 from dedup import save_dedup_snapshot
 from telegram_bot import send_to_telegram, telegram_html_anchor
@@ -44,6 +47,28 @@ def _diversify_items(items: list[dict], limit: int) -> list[dict]:
     return selected
 
 
+def prepare_daily_telegram_digest(conn, client, session, timeout, limit=None):
+    """Read candidates and run source-backed selection/editing; never consume/send."""
+    items = get_unsent_telegram_digest_items(conn)
+    for item in items:
+        score, category, _ = score_and_classify_item(item["title"], item["source"], item["url"], item["summary_he"])
+        item.update(importance_score=score, category=category)
+    selected = select_editorial_items(client, items, _max_items() if limit is None else limit)
+    sourced = []
+    for item in selected:
+        if not item.get("source_text"):
+            body = fetch_article_body(session, item["url"], timeout)
+            if body:
+                item["source_text"] = (item["title"] + ". " + body)[:8000]
+        if not item.get("source_text"):
+            log.warning("Digest item %s lacks source evidence; left pending", item["id"])
+            continue
+        sourced.append(item)
+    edited = edit_hebrew_items(client, sourced)
+    now = datetime.now(ZoneInfo("Europe/Warsaw"))
+    return format_digest_chunks(edited, now.strftime("%d.%m.%Y"))
+
+
 def send_daily_telegram_digest(conn, client: OpenAI, session, timeout) -> bool:
     if os.environ.get("NEWS_DIGEST_ENABLED", "1").strip() != "1":
         log.info("Telegram daily digest disabled")
@@ -54,44 +79,17 @@ def send_daily_telegram_digest(conn, client: OpenAI, session, timeout) -> bool:
     if completed or remaining <= 0:
         log.info("Telegram digest already delivered today (%d stories)", delivered_today)
         return False
-    items = get_unsent_telegram_digest_items(conn)
-    # Apply current editorial rules to the backlog as well as new ingestion.
-    for item in items:
-        score, category, _ = score_and_classify_item(item["title"], item["source"], item["url"], item["summary_he"])
-        item.update(importance_score=score, category=category)
-    selected = _diversify_items(items, remaining)
-    if not selected:
-        return False
-    selected = edit_hebrew_items(client, selected)
-    header = f"🇵🇱 <b>חדשות פולין — {now.strftime('%d.%m.%Y')}</b>"
-    # Reuse the verified Hebrew summaries: every selected story appears, with its
-    # own source. Split only between complete entries, never inside an HTML tag.
-    chunks = []
-    message, chunk_items = header, []
-    for item in selected:
-        label = f"{item.get('source') or ''}: {(item.get('title') or '')[:200]}"
-        entry = "\n\n• " + html.escape(item["summary_he"], quote=False)
-        entry += "\n" + telegram_html_anchor(item["url"], label)
-        if len(header) + len(entry) > 3500:
-            log.warning("Oversize digest item %s left pending", item["id"])
-            continue
-        if len(message) + len(entry) > 3500 and chunk_items:
-            chunks.append((message, chunk_items))
-            message, chunk_items = header, []
-        message += entry
-        chunk_items.append(item)
-    if chunk_items:
-        chunks.append((message, chunk_items))
+    chunks = prepare_daily_telegram_digest(conn, client, session, timeout, remaining)
     for message, delivered in chunks:
         send_to_telegram(session, message, timeout=timeout)
         mark_telegram_digest_items_sent(conn, [int(x["id"]) for x in delivered], "evening", now.isoformat())
         for item in delivered:
-            conn.execute("UPDATE email_digest_items SET summary_he = ? WHERE id = ?", (item["summary_he"], item["id"]))
+            conn.execute("UPDATE email_digest_items SET summary_he = ?, source_text = ? WHERE id = ?",
+                         (item["summary_he"], item.get("source_text", ""), item["id"]))
             save_dedup_snapshot(conn, item["article_id"], item.get("title", ""), "", int(now.timestamp()))
         conn.commit()
     if chunks:
         complete_telegram_digest_day(conn, now)
         conn.commit()
-    log.info("Telegram daily digest: selected=%d delivered=%d pending=%d", len(selected),
-             sum(len(batch) for _, batch in chunks), len(items) - sum(len(batch) for _, batch in chunks))
+    log.info("Telegram daily digest: messages=%d delivered=%d", len(chunks), sum(len(batch) for _, batch in chunks))
     return bool(chunks)

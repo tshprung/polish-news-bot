@@ -128,7 +128,9 @@ _ISRAEL_MENTION_RE = re.compile(
 
 def _sanitize_hebrew_summary_line(result: str) -> str:
     """Decode HTML entities before stripping chars, or &#34; becomes garbage \"34;\"."""
-    return _SANITIZE_HB_LINE.sub("", html.unescape(result)).strip()
+    # Hebrew maqaf and non-breaking hyphens are valid separators in ה־NIK.
+    normalized = html.unescape(result).translate(str.maketrans({"־": "-", "‐": "-", "‑": "-"}))
+    return " ".join(_SANITIZE_HB_LINE.sub(" ", normalized).split())
 
 _LEADING_LABEL_PATTERNS = (
     r"^העברית\s*:\s*",
@@ -393,6 +395,7 @@ def summarize_in_hebrew(
         _TEL.body_fetched_chars += len(body)
     text = (article["title"] + ". " + body) if body else rss_text
     body_available = bool(body)
+    article["source_text"] = text[:8000]
 
     if should_skip_public_opinion_poll_blob(
         (article.get("title") or "")
@@ -539,7 +542,9 @@ def summarize_in_hebrew(
             leak = non_hebrew_prose_leak_reason(result or raw_retry or "")
             if not _HEBREW_CHAR_RE.search(raw_retry or ""):
                 return None, "no Hebrew characters in result"
-            return None, f"non-Hebrew prose in summary ({leak or 'Hebrew-only retry failed'})"
+            if leak:
+                return None, f"non-Hebrew prose in summary ({leak})"
+            return None, "mixed-script formatting after retry"
     if stage_err:
         return None, stage_err
 

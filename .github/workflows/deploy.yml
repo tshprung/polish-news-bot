@@ -21,8 +21,10 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            cd /opt/polish_news
-            git pull
-            ./venv/bin/pip install -q -r requirements.txt
+            flock -w 1200 /tmp/polish_news.lock bash -ec '
+              cd /opt/polish_news
+              git pull --ff-only
+              ./venv/bin/pip install -q -r requirements.txt
+            '
             echo "Deploy done at $(date)"
 
